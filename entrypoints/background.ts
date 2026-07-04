@@ -9,7 +9,7 @@ import type {
   StartGenerationMessage,
 } from '../types/cleanweb';
 import { formatCssForPreview } from '../utils/css-format';
-import { FALLBACK_CSS, generateCssRule } from '../utils/llm';
+import { FALLBACK_CSS, generateAiModifyRule, generateCssRule, generateSmartHideRule } from '../utils/llm';
 import { getGenerationState, saveGenerationState } from '../utils/storage';
 
 export default defineBackground(() => {
@@ -29,6 +29,28 @@ export default defineBackground(() => {
 
     if (message.type === 'CLEANWEB_CANCEL_GENERATION') {
       return cancelGenerationTask(message.hostname);
+    }
+
+    if (message.type === 'CLEANWEB_SMART_HIDE') {
+      return generateSmartHideRule({ action: 'smart-hide', context: message.context })
+        .then((result) => ({ ok: true, result }))
+        .catch((error: unknown) => ({
+          ok: false,
+          error: error instanceof Error ? error.message : 'Smart hide failed',
+        }));
+    }
+
+    if (message.type === 'CLEANWEB_AI_MODIFY') {
+      return generateAiModifyRule({
+        action: 'ai-modify',
+        instruction: message.instruction,
+        context: message.context,
+      })
+        .then((result) => ({ ok: true, result }))
+        .catch((error: unknown) => ({
+          ok: false,
+          error: error instanceof Error ? error.message : 'AI modify failed',
+        }));
     }
 
     return Promise.resolve({ ok: false, error: 'Unknown background message type' });

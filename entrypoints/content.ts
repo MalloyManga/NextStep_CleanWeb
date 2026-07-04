@@ -1,11 +1,15 @@
 ﻿import { browser } from 'wxt/browser';
 import type {
+  AiModifyMessage,
+  AiModifyResult,
   ApplyRuleMessage,
   CleanWebMessage,
   CleanWebResponse,
   DomSummaryItem,
+  SmartHideMessage,
+  SmartHideResult,
 } from '../types/cleanweb';
-import { buildReadableSelector, collectDomSummary } from '../utils/dom-summary';
+import { buildReadableSelector, collectDomSummary, collectElementContext, toElementContextItem } from '../utils/dom-summary';
 import { getHostname, getRule, removeRule, saveRule } from '../utils/storage';
 
 const STYLE_ID = 'cleanweb-generated-style';
@@ -530,16 +534,22 @@ async function handleHideSelectedElement(event: MouseEvent) {
   const target = state?.selectedTarget;
   if (!target) return;
 
-  const selector = buildReadableSelector(target);
-  const css = `${selector} {\n  display: none !important;\n}`;
+  const context = collectElementContext(target, { ancestorDepth: 4, siblingCount: 4 });
+  context.recommendedTarget = toElementContextItem(target);
+
+  const message: SmartHideMessage = { type: 'CLEANWEB_SMART_HIDE', context };
+  const response = await browser.runtime.sendMessage(message);
+  if (!response?.ok || !response.result) return;
+  const result = response.result as SmartHideResult;
+
   const hostname = getHostname();
   const existingRule = await getRule(hostname);
-  const nextCss = appendCssRule(existingRule?.css, css);
+  const nextCss = appendCssRule(existingRule?.css, result.css);
 
   injectCss(nextCss);
   await saveRule(hostname, {
     css: nextCss,
-    instruction: appendInstruction(existingRule?.instruction, `隐藏 ${selector}`),
+    instruction: appendInstruction(existingRule?.instruction, `隐藏 ${result.selector}：${result.explanation}`),
     updatedAt: Date.now(),
     drafts: existingRule?.drafts,
   });
@@ -696,12 +706,67 @@ function createAiPanelContent() {
     'color:#ffffff',
     'cursor:pointer',
   ].join(';');
-  submitBtn.addEventListener('click', (event: Event) => {
+  submitBtn.addEventListener('click', async (event: Event) => {
     event.preventDefault();
     event.stopPropagation();
-    // LLM 未接入：占位反馈
-    input.value = '';
-    input.placeholder = 'AI 接口接入后将在此生成规则…';
+
+    const state = pickerState;
+    const target = state?.selectedTarget;
+    if (!target) return;
+
+    const instruction = input.value.trim();
+    if (!instruction) {
+      input.placeholder = '请输入指令…';
+      return;
+    }
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = '生成中…';
+
+    try {
+      const context = collectElementContext(target, { ancestorDepth: 4, siblingCount: 4 });
+      context.recommendedTarget = toElementContextItem(target);
+
+      const message: AiModifyMessage = { type: 'CLEANWEB_AI_MODIFY', instruction, context };
+      const response = await browser.runtime.sendMessage(message);
+      if (!response?.ok || !response.result) {
+        input.placeholder = response?.error || 'AI 修改失败';
+        input.value = '';
+        return;
+      }
+      const result = response.result as AiModifyResult;
+
+      if (!result.css) {
+        input.placeholder = result.explanation || 'AI 未返回规则';
+        input.value = '';
+        return;
+      }
+
+      const hostname = getHostname();
+      const existingRule = await getRule(hostname);
+      const nextCss = appendCssRule(existingRule?.css, result.css);
+
+      injectCss(nextCss);
+      await saveRule(hostname, {
+        css: nextCss,
+        instruction: appendInstruction(existingRule?.instruction, `${instruction}：${result.explanation}`),
+        updatedAt: Date.now(),
+      });
+      markRuleSaved(hostname);
+
+      input.value = '';
+      input.placeholder = '已应用';
+
+      if (state) {
+        state.hiddenCount += 1;
+      }
+      continuePicking();
+    } catch (error) {
+      input.placeholder = error instanceof Error ? error.message : 'AI 修改失败';
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = '生成并应用';
+    }
   });
 
   actions.append(cancelBtn, submitBtn);

@@ -1,5 +1,15 @@
 import OpenAI from 'openai';
-import type { AiDebugLog, DomSummaryItem, LlmSettings } from '../types/cleanweb';
+import type {
+  AiDebugLog,
+  AiModifyRequest,
+  AiModifyResult,
+  DomSummaryItem,
+  LlmSettings,
+  SelectedElementContext,
+  SmartHideRequest,
+  SmartHideResult,
+} from '../types/cleanweb';
+import { getLlmSettings } from './storage';
 
 export interface GenerateCssInput {
   instruction: string;
@@ -12,6 +22,12 @@ export interface GenerateCssResult {
   explanation: string;
   usedFallback: boolean;
   debug: AiDebugLog;
+}
+
+interface JsonCompletionResult {
+  raw: string;
+  responseSnapshot: string;
+  retriedWithoutResponseFormat: boolean;
 }
 
 const FALLBACK_CSS = `aside,
@@ -42,19 +58,27 @@ export function getDefaultLlmConfig(): LlmSettings {
   };
 }
 
-function resolveConfig(input: GenerateCssInput): LlmSettings {
+async function resolveConfig(settings?: LlmSettings): Promise<LlmSettings> {
   const defaults = getDefaultLlmConfig();
-  const fromInput = input.settings;
+  const stored = await getLlmSettings();
 
   return {
-    apiKey: (fromInput?.apiKey || defaults.apiKey).trim(),
-    baseUrl: (fromInput?.baseUrl || defaults.baseUrl).trim(),
-    model: (fromInput?.model || defaults.model || 'gpt-4o-mini').trim(),
+    apiKey: (settings?.apiKey || stored?.apiKey || defaults.apiKey).trim(),
+    baseUrl: (settings?.baseUrl || stored?.baseUrl || defaults.baseUrl).trim(),
+    model: (settings?.model || stored?.model || defaults.model || 'gpt-4o-mini').trim(),
   };
 }
 
+function createClient(config: LlmSettings) {
+  return new OpenAI({
+    apiKey: config.apiKey,
+    ...(config.baseUrl ? { baseURL: config.baseUrl } : {}),
+    dangerouslyAllowBrowser: true,
+  });
+}
+
 export async function generateCssRule(input: GenerateCssInput): Promise<GenerateCssResult> {
-  const config = resolveConfig(input);
+  const config = await resolveConfig(input.settings);
   const requestStartedAt = Date.now();
   const summaryLimit = 60;
   const debugBase = {
@@ -85,12 +109,6 @@ export async function generateCssRule(input: GenerateCssInput): Promise<Generate
     summaryCount: input.domSummary.length,
     model: config.model,
     hasBaseUrl: Boolean(config.baseUrl),
-  });
-
-  const client = new OpenAI({
-    apiKey: config.apiKey,
-    ...(config.baseUrl ? { baseURL: config.baseUrl } : {}),
-    dangerouslyAllowBrowser: true,
   });
 
   const domSummaryText = JSON.stringify(input.domSummary.slice(0, summaryLimit), null, 2);
@@ -128,73 +146,45 @@ Generate CSS and respond with JSON only.`,
     },
   ];
 
-  let raw = '';
-  let responseSnapshot = '';
-  let retriedWithoutResponseFormat = false;
+  let completion: JsonCompletionResult;
 
   try {
-    const response = await client.chat.completions.create({
-      model: config.model,
-      messages,
-      response_format: { type: 'json_object' },
-      max_tokens: 1500,
-    });
-
-    responseSnapshot = stringifyResponseSnapshot(response);
-    raw = response.choices[0]?.message?.content?.trim() ?? '';
+    completion = await requestJsonCompletion(config, messages, 1500);
   } catch (error) {
-    retriedWithoutResponseFormat = true;
-    console.warn('[CleanWeb][AI] response_format request failed, retrying without it', {
-      model: config.model,
-      error: getErrorMessage(error),
+    return createFallbackResult('Rule generation request failed. Applied the built-in fallback rule.', {
+      ...debugBase,
+      responseFinishedAt: Date.now(),
+      requestError: getErrorMessage(error),
+      usedFallback: true,
     });
-
-    try {
-      const response = await client.chat.completions.create({
-        model: config.model,
-        messages,
-        max_tokens: 1500,
-      });
-
-      responseSnapshot = stringifyResponseSnapshot(response);
-      raw = response.choices[0]?.message?.content?.trim() ?? '';
-    } catch (retryError) {
-      return createFallbackResult('Rule generation request failed. Applied the built-in fallback rule.', {
-        ...debugBase,
-        responseFinishedAt: Date.now(),
-        requestError: getErrorMessage(retryError),
-        usedFallback: true,
-        retriedWithoutResponseFormat,
-      });
-    }
   }
 
-  if (!raw) {
+  if (!completion.raw) {
     console.warn('[CleanWeb][AI] empty response', {
       model: config.model,
     });
     return createFallbackResult('AI returned an empty response. Applied the built-in fallback rule.', {
       ...debugBase,
       responseFinishedAt: Date.now(),
-      rawResponse: raw,
-      responseSnapshot,
+      rawResponse: completion.raw,
+      responseSnapshot: completion.responseSnapshot,
       parseError: 'Empty response',
       usedFallback: true,
-      retriedWithoutResponseFormat,
+      retriedWithoutResponseFormat: completion.retriedWithoutResponseFormat,
     });
   }
 
   try {
-    const parsed = parseJsonObject(raw) as Partial<GenerateCssResult>;
+    const parsed = parseJsonObject(completion.raw) as Partial<GenerateCssResult>;
     if (!parsed.css || typeof parsed.css !== 'string') {
       return createFallbackResult('AI response did not include a valid css field. Applied the built-in fallback rule.', {
         ...debugBase,
         responseFinishedAt: Date.now(),
-        rawResponse: raw,
-        responseSnapshot,
+        rawResponse: completion.raw,
+        responseSnapshot: completion.responseSnapshot,
         parseError: 'Missing css string field',
         usedFallback: true,
-        retriedWithoutResponseFormat,
+        retriedWithoutResponseFormat: completion.retriedWithoutResponseFormat,
       });
     }
 
@@ -206,12 +196,12 @@ Generate CSS and respond with JSON only.`,
       debug: {
         ...debugBase,
         responseFinishedAt: Date.now(),
-        rawResponse: raw,
-        responseSnapshot,
+        rawResponse: completion.raw,
+        responseSnapshot: completion.responseSnapshot,
         cssLength: parsed.css.trim().length,
         explanation,
         usedFallback: false,
-        retriedWithoutResponseFormat,
+        retriedWithoutResponseFormat: completion.retriedWithoutResponseFormat,
       },
     };
 
@@ -224,18 +214,175 @@ Generate CSS and respond with JSON only.`,
     return result;
   } catch (error) {
     console.warn('[CleanWeb][AI] failed to parse response', {
-      rawLength: raw.length,
+      rawLength: completion.raw.length,
       model: config.model,
     });
     return createFallbackResult('AI response could not be parsed as JSON. Applied the built-in fallback rule.', {
       ...debugBase,
       responseFinishedAt: Date.now(),
-      rawResponse: raw,
-      responseSnapshot,
+      rawResponse: completion.raw,
+      responseSnapshot: completion.responseSnapshot,
       parseError: getErrorMessage(error),
       usedFallback: true,
-      retriedWithoutResponseFormat,
+      retriedWithoutResponseFormat: completion.retriedWithoutResponseFormat,
     });
+  }
+}
+
+export async function generateSmartHideRule(request: SmartHideRequest): Promise<SmartHideResult> {
+  const config = await resolveConfig();
+  const selector = request.context.recommendedTarget?.selector ?? request.context.selected.selector;
+
+  if (!config.apiKey) {
+    return {
+      action: 'smart-hide',
+      selector,
+      css: fallbackSmartHideCss(request.context),
+      explanation: 'Missing API key. Used the built-in smart hide rule.',
+    };
+  }
+
+  const contextText = formatSelectedElementContext(request.context);
+  const messages = [
+    {
+      role: 'system' as const,
+      content: `You are a web page cleaning assistant. Given a selected element and its ancestor chain, choose the best CSS selector to hide the most relevant container.
+
+Rules:
+- Return a strict JSON object with fields: "selector", "css", "explanation".
+- The selector should target the smallest reasonable container that removes the visual noise.
+- Do not hide html, body, main, article, or any area larger than 70% of the viewport.
+- Use stable selectors: id, aria-label, role, then semantic class names.
+- Prefer the recommended target if one is provided, but improve it if possible.
+- CSS must only hide the target, and may use !important if necessary.`,
+    },
+    {
+      role: 'user' as const,
+      content: `Selected element context:\n${contextText}\n\nReturn the best selector to hide.`,
+    },
+  ];
+
+  const completion = await requestJsonCompletion(config, messages, 1024);
+  if (!completion.raw) {
+    return {
+      action: 'smart-hide',
+      selector,
+      css: fallbackSmartHideCss(request.context),
+      explanation: 'AI returned an empty response. Used the built-in smart hide rule.',
+    };
+  }
+
+  try {
+    const parsed = parseJsonObject(completion.raw) as Partial<SmartHideResult>;
+    const nextSelector = parsed.selector?.trim() || selector;
+    return {
+      action: 'smart-hide',
+      selector: nextSelector,
+      css: parsed.css?.trim() || `${nextSelector} {\n  display: none !important;\n}`,
+      explanation: parsed.explanation?.trim() || '',
+    };
+  } catch {
+    return {
+      action: 'smart-hide',
+      selector,
+      css: fallbackSmartHideCss(request.context),
+      explanation: 'AI response could not be parsed. Used the built-in smart hide rule.',
+    };
+  }
+}
+
+export async function generateAiModifyRule(request: AiModifyRequest): Promise<AiModifyResult> {
+  const config = await resolveConfig();
+
+  if (!config.apiKey) {
+    return {
+      action: 'ai-modify',
+      css: '',
+      explanation: 'Missing API key. AI modify is unavailable.',
+    };
+  }
+
+  const contextText = formatSelectedElementContext(request.context);
+  const messages = [
+    {
+      role: 'system' as const,
+      content: `You are a web page modification assistant. Given a selected element and its surrounding context, generate CSS to modify the element according to the user's instruction.
+
+Rules:
+- Return a strict JSON object with fields: "css", "explanation".
+- Only affect the selected element or its reasonable parent container.
+- Do not generate JavaScript, HTML, or remote resources.
+- Use !important when necessary to override existing styles.
+- Keep the CSS scoped and safe.`,
+    },
+    {
+      role: 'user' as const,
+      content: `User instruction: ${request.instruction}\n\nSelected element context:\n${contextText}\n\nGenerate CSS and respond with JSON only.`,
+    },
+  ];
+
+  const completion = await requestJsonCompletion(config, messages, 1024);
+  if (!completion.raw) {
+    return {
+      action: 'ai-modify',
+      css: '',
+      explanation: 'AI returned an empty response.',
+    };
+  }
+
+  try {
+    const parsed = parseJsonObject(completion.raw) as Partial<AiModifyResult>;
+    return {
+      action: 'ai-modify',
+      css: parsed.css?.trim() || '',
+      explanation: parsed.explanation?.trim() || '',
+    };
+  } catch {
+    return {
+      action: 'ai-modify',
+      css: '',
+      explanation: 'AI response could not be parsed.',
+    };
+  }
+}
+
+async function requestJsonCompletion(
+  config: LlmSettings,
+  messages: Array<{ role: 'system' | 'user'; content: string }>,
+  maxTokens: number,
+): Promise<JsonCompletionResult> {
+  const client = createClient(config);
+
+  try {
+    const response = await client.chat.completions.create({
+      model: config.model,
+      messages,
+      response_format: { type: 'json_object' },
+      max_tokens: maxTokens,
+    });
+
+    return {
+      raw: response.choices[0]?.message?.content?.trim() ?? '',
+      responseSnapshot: stringifyResponseSnapshot(response),
+      retriedWithoutResponseFormat: false,
+    };
+  } catch (error) {
+    console.warn('[CleanWeb][AI] response_format request failed, retrying without it', {
+      model: config.model,
+      error: getErrorMessage(error),
+    });
+
+    const response = await client.chat.completions.create({
+      model: config.model,
+      messages,
+      max_tokens: maxTokens,
+    });
+
+    return {
+      raw: response.choices[0]?.message?.content?.trim() ?? '',
+      responseSnapshot: stringifyResponseSnapshot(response),
+      retriedWithoutResponseFormat: true,
+    };
   }
 }
 
@@ -279,6 +426,40 @@ function extractJsonObject(raw: string) {
   }
 
   return raw.slice(start, end + 1);
+}
+
+function fallbackSmartHideCss(context: SelectedElementContext): string {
+  const selector = context.recommendedTarget?.selector ?? context.selected.selector;
+  return `${selector} {\n  display: none !important;\n}`;
+}
+
+function formatSelectedElementContext(context: SelectedElementContext): string {
+  const selected = context.selected;
+  const lines = [
+    `Selected: ${selected.tag} ${selected.selector}`,
+    `  rect: ${JSON.stringify(selected.rect)}`,
+    `  text: ${selected.text.slice(0, 80)}`,
+  ];
+
+  if (context.recommendedTarget) {
+    lines.push(`Recommended target: ${context.recommendedTarget.selector}`);
+  }
+
+  if (context.ancestors.length > 0) {
+    lines.push('Ancestors:');
+    for (const ancestor of context.ancestors) {
+      lines.push(`  ${ancestor.depth}: ${ancestor.tag} ${ancestor.selector} | text: ${ancestor.text.slice(0, 80)}`);
+    }
+  }
+
+  if (context.siblings.length > 0) {
+    lines.push('Siblings:');
+    for (const sibling of context.siblings) {
+      lines.push(`  ${sibling.tag} ${sibling.selector} | text: ${sibling.text.slice(0, 80)}`);
+    }
+  }
+
+  return lines.join('\n');
 }
 
 function getErrorMessage(error: unknown) {
