@@ -21,7 +21,7 @@ defineEmits<{
       <textarea
         :value="instruction"
         rows="3"
-        class="w-full resize-y rounded-xl border border-line bg-surface p-3 text-sm leading-6 text-ink outline-none transition focus:border-brand focus:shadow-[0_0_0_3px_var(--color-brand-soft)]"
+        class="w-full resize-y rounded-xl border border-line bg-surface p-3 text-sm leading-6 text-ink outline-none transition focus:border-brand focus:ring focus:ring-brand-soft"
         @input="$emit('update:instruction', ($event.target as HTMLTextAreaElement).value)"
       />
     </label>
@@ -34,7 +34,7 @@ defineEmits<{
       <textarea
         :value="generatedCss"
         rows="9"
-        class="w-full resize-y rounded-xl border border-line bg-[#101817] p-3 font-mono text-xs leading-5 text-[#dff7ec] outline-none transition focus:border-brand focus:shadow-[0_0_0_3px_var(--color-brand-soft)]"
+        class="w-full resize-y rounded-xl border border-line bg-code p-3 font-mono text-xs leading-5 text-code-text outline-none transition focus:border-brand focus:ring focus:ring-brand-soft"
         @input="$emit('update:generatedCss', ($event.target as HTMLTextAreaElement).value)"
       />
     </label>
@@ -51,7 +51,7 @@ defineEmits<{
       <button
         type="button"
         :disabled="isBusy || !canApply"
-        class="min-h-11 rounded-xl border border-brand bg-brand px-3 text-sm font-black text-white shadow-sm transition hover:bg-[#255c52] disabled:cursor-not-allowed disabled:opacity-60"
+        class="min-h-11 rounded-xl border border-brand bg-brand px-3 text-sm font-black text-white shadow-sm transition hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-60"
         @click="$emit('apply')"
       >
         应用并保存

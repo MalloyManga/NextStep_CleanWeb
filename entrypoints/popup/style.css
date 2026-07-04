@@ -6,9 +6,12 @@
   --color-surface: #fffdf8;
   --color-line: #d8d4ca;
   --color-brand: #2e6f63;
+  --color-brand-dark: #255c52;
   --color-brand-soft: rgb(46 111 99 / 14%);
   --color-danger: #7a3327;
   --color-muted: #57636b;
+  --color-code: #101817;
+  --color-code-text: #dff7ec;
 }
 
 body {
@@ -16,6 +19,19 @@ body {
   margin: 0;
   color: var(--color-ink);
   background: var(--color-paper);
+  scrollbar-width: none;
+}
+
+body::-webkit-scrollbar {
+  display: none;
+}
+
+#app {
+  scrollbar-width: none;
+}
+
+#app::-webkit-scrollbar {
+  display: none;
 }
 
 button,

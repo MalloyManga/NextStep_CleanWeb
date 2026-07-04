@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { browser } from 'wxt/browser';
+import { storage } from 'wxt/utils/storage';
 import CleanModePanel from '../../components/popup/CleanModePanel.vue';
 import ModeTabs from '../../components/popup/ModeTabs.vue';
 import PopupHeader from '../../components/popup/PopupHeader.vue';
@@ -14,6 +15,8 @@ import type {
   ResetRuleMessage,
   StartElementPickerMessage,
 } from '../../types/cleanweb';
+
+const MODE_STORAGE_KEY = 'local:cleanweb:popup-mode';
 
 const instruction = ref('隐藏侧边栏和广告，把正文区域居中放大');
 const generatedCss = ref(`aside,
@@ -42,6 +45,11 @@ const summaryLabel = computed(() => (summaryCount.value > 0 ? `${summaryCount.va
 
 onMounted(async () => {
   currentSite.value = await getCurrentSiteLabel();
+  mode.value = await getSavedMode();
+});
+
+watch(mode, (nextMode) => {
+  storage.setItem(MODE_STORAGE_KEY, nextMode);
 });
 
 async function getActiveTabId() {
@@ -65,6 +73,15 @@ function getHostnameLabel(url: string | undefined) {
   } catch {
     return '当前页面';
   }
+}
+
+async function getSavedMode() {
+  const savedMode = await storage.getItem<WorkMode>(MODE_STORAGE_KEY);
+  return isWorkMode(savedMode) ? savedMode : 'clean';
+}
+
+function isWorkMode(value: unknown): value is WorkMode {
+  return value === 'clean' || value === 'select';
 }
 
 async function sendToActiveTab<TMessage, TResponse = CleanWebResponse>(message: TMessage) {
@@ -141,6 +158,7 @@ async function startElementPicker() {
       type: 'CLEANWEB_START_ELEMENT_PICKER',
     });
     status.value = '选择模式已开启';
+    window.setTimeout(() => window.close(), 120);
   } catch (error) {
     status.value = error instanceof Error ? error.message : '无法开启选择模式';
   } finally {

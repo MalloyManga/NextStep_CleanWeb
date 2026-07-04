@@ -23,7 +23,7 @@ defineEmits<{
     <button
       type="button"
       :disabled="isBusy"
-      class="min-h-12 rounded-xl border border-brand bg-brand px-3 text-sm font-black text-white shadow-sm transition hover:bg-[#255c52] disabled:cursor-not-allowed disabled:opacity-60"
+      class="min-h-12 rounded-xl border border-brand bg-brand px-3 text-sm font-black text-white shadow-sm transition hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-60"
       @click="$emit('startPicker')"
     >
       选择网页元素
