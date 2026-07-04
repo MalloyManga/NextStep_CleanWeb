@@ -209,26 +209,35 @@ async function startElementPicker() {
 
 <template>
   <main class="grid min-h-0 content-start gap-3 p-4">
-    <PopupHeader :current-site="currentSite" :summary-label="summaryLabel" />
+    <template v-if="mode === 'settings'">
+      <SettingsPanel
+        v-model:settings="llmSettings"
+        :is-busy="isBusy"
+        @save="saveSettings"
+        @back="mode = 'clean'"
+      />
+    </template>
 
-    <ModeTabs v-model="mode" />
+    <template v-else>
+      <PopupHeader
+        :current-site="currentSite"
+        :summary-label="summaryLabel"
+        @open-settings="mode = 'settings'"
+      />
 
-    <CleanModePanel
-      v-if="mode === 'clean'"
-      v-model:instruction="instruction"
-      v-model:generated-css="generatedCss"
-      :is-busy="isBusy"
-      :can-apply="canApply"
-      @analyze="collectDomSummary"
-      @apply="applyCss"
-    />
-    <SettingsPanel
-      v-else-if="mode === 'settings'"
-      v-model:settings="llmSettings"
-      :is-busy="isBusy"
-      @save="saveSettings"
-    />
-    <SelectModePanel v-else :is-busy="isBusy" @start-picker="prepareElementPicker" />
+      <ModeTabs v-model="mode" />
+
+      <CleanModePanel
+        v-if="mode === 'clean'"
+        v-model:instruction="instruction"
+        v-model:generated-css="generatedCss"
+        :is-busy="isBusy"
+        :can-apply="canApply"
+        @analyze="collectDomSummary"
+        @apply="applyCss"
+      />
+      <SelectModePanel v-else :is-busy="isBusy" @start-picker="prepareElementPicker" />
+    </template>
 
     <StatusBar :status="status" :is-busy="isBusy" @reset="resetPage" />
   </main>
