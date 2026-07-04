@@ -6,6 +6,7 @@ import type {
   CleanWebResponse,
   DomSummaryMessage,
   ResetRuleMessage,
+  StartElementPickerMessage,
 } from '../../types/cleanweb';
 
 type WorkMode = 'clean' | 'select';
@@ -124,12 +125,28 @@ async function resetPage() {
 
 function prepareElementPicker() {
   mode.value = 'select';
-  status.value = '精准选择逻辑待接入';
+  startElementPicker();
+}
+
+async function startElementPicker() {
+  isBusy.value = true;
+  status.value = '请在网页中选择一个元素';
+
+  try {
+    await sendToActiveTab<StartElementPickerMessage>({
+      type: 'CLEANWEB_START_ELEMENT_PICKER',
+    });
+    status.value = '选择模式已开启';
+  } catch (error) {
+    status.value = error instanceof Error ? error.message : '无法开启选择模式';
+  } finally {
+    isBusy.value = false;
+  }
 }
 </script>
 
 <template>
-  <main class="min-h-[560px] bg-paper text-ink">
+  <main class="min-h-140 bg-paper text-ink">
     <section class="border-b border-line/80 bg-surface px-5 pb-4 pt-5">
       <header class="flex items-start justify-between gap-4">
         <div class="min-w-0">
@@ -227,27 +244,17 @@ function prepareElementPicker() {
 
         <button
           type="button"
+          :disabled="isBusy"
           class="min-h-12 rounded-xl border border-brand bg-brand px-3 text-sm font-black text-white shadow-sm transition hover:bg-[#255c52]"
           @click="prepareElementPicker"
         >
           选择网页元素
         </button>
 
-        <div class="grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            disabled
-            class="min-h-11 rounded-xl border border-line bg-surface px-3 text-sm font-black text-muted opacity-60"
-          >
-            隐藏
-          </button>
-          <button
-            type="button"
-            disabled
-            class="min-h-11 rounded-xl border border-line bg-surface px-3 text-sm font-black text-muted opacity-60"
-          >
-            AI 修改
-          </button>
+        <div class="rounded-xl border border-line bg-surface p-4">
+          <p class="m-0 text-xs font-bold leading-5 text-muted">
+            开启后在网页中悬停目标区域，点击选中。操作按钮会出现在鼠标附近。
+          </p>
         </div>
       </div>
 
