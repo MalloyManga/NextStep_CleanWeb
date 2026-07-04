@@ -19,9 +19,10 @@ function confirmReset() {
 </script>
 
 <template>
-  <div class="pt-1">
+  <div class="min-w-0 max-w-full overflow-hidden pt-1">
     <!-- 确认态：展开二次确认 -->
-    <div v-if="confirming" class="flex items-center justify-between gap-2 rounded-lg border border-danger/30 bg-danger-soft px-2.5 py-1.5">
+    <div v-if="confirming"
+      class="flex min-w-0 max-w-full items-center justify-between gap-2 overflow-hidden rounded-lg border border-danger/30 bg-danger-soft px-2.5 py-1.5">
       <span class="min-w-0 truncate text-xs text-danger">确定移除本页所有规则？</span>
       <div class="flex shrink-0 gap-1.5">
         <button type="button"
@@ -38,11 +39,11 @@ function confirmReset() {
     </div>
 
     <!-- 默认态：状态 + 恢复入口 -->
-    <div v-else class="flex items-center justify-between gap-3">
-      <p class="m-0 flex min-w-0 items-center gap-1.5 truncate text-xs text-ink-soft">
+    <div v-else class="flex min-w-0 max-w-full items-center justify-between gap-3 overflow-hidden">
+      <p class="m-0 flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden text-xs text-ink-soft" :title="status">
         <SpinnerIcon v-if="isBusy" class="h-3.5 w-3.5 shrink-0 text-brand" />
         <span v-else class="h-1.5 w-1.5 shrink-0 rounded-full" :class="status.includes('失败') || status.includes('错误') ? 'bg-danger' : 'bg-brand/40'"></span>
-        <span class="truncate">{{ status }}</span>
+        <span class="block min-w-0 flex-1 truncate">{{ status }}</span>
       </p>
       <button type="button" :disabled="isBusy"
         class="shrink-0 text-xs text-muted underline-offset-2 transition hover:text-danger hover:underline disabled:cursor-not-allowed disabled:opacity-50"

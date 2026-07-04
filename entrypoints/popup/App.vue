@@ -13,17 +13,21 @@ import type {
   ApplyRuleMessage,
   CleanWebResponse,
   DomSummaryMessage,
+  GeneratedRuleDraft,
   LlmSettings,
   ResetRuleMessage,
   StartElementPickerMessage,
 } from '../../types/cleanweb'
+import { formatCssForPreview } from '../../utils/css-format'
 import { FALLBACK_CSS, generateCssRule } from '../../utils/llm'
 import { getLlmSettings, getRule, saveLlmSettings } from '../../utils/storage'
 
 const MODE_STORAGE_KEY = 'local:cleanweb:popup-mode'
 
-const instruction = ref('隐藏侧栏和广告，把正文区域居中放大')
+const instruction = ref('')
 const generatedCss = ref('')
+const generatedRuleDrafts = ref<GeneratedRuleDraft[]>([])
+const selectedDraftId = ref<string | null>(null)
 const status = ref('准备净化当前页面')
 const currentSite = ref('当前页面')
 const isBusy = ref(false)
@@ -157,19 +161,29 @@ async function collectDomSummary() {
       domSummary: response.summary ?? [],
       settings: llmSettings.value,
     })
-    generatedCss.value = result.css || FALLBACK_CSS
+    const formattedCss = formatCssForPreview(result.css || FALLBACK_CSS)
+    const draft = createGeneratedRuleDraft({
+      css: formattedCss,
+      explanation: result.explanation,
+      instruction: instruction.value,
+      source: result.usedFallback ? 'fallback' : 'full-page',
+    })
+
+    generatedRuleDrafts.value = [draft, ...generatedRuleDrafts.value].slice(0, 6)
+    selectedDraftId.value = draft.id
+    generatedCss.value = draft.css
     hasGenerated.value = true
 
     // P0-1：生成后自动应用 + 保存，一步到位
     status.value = '正在应用净化规则'
     await sendToActiveTab<ApplyRuleMessage>({
       type: 'CLEANWEB_APPLY_RULE',
-      css: generatedCss.value,
-      instruction: instruction.value,
+      css: getEnabledDraftCss(),
+      instruction: getEnabledDraftInstruction(),
       save: true,
     })
     hasSavedRule.value = true
-    status.value = result.explanation || '规则已应用并保存'
+    status.value = getStatusPreview(result.explanation || '规则已应用并保存')
   } catch (error) {
     status.value = error instanceof Error ? error.message : '读取页面结构失败'
   } finally {
@@ -189,6 +203,8 @@ async function resetPage() {
     hasSavedRule.value = false
     hasGenerated.value = false
     generatedCss.value = ''
+    generatedRuleDrafts.value = []
+    selectedDraftId.value = null
   } catch (error) {
     status.value = error instanceof Error ? error.message : '恢复页面失败'
   } finally {
@@ -199,6 +215,94 @@ async function resetPage() {
 function prepareElementPicker() {
   mode.value = 'select'
   startElementPicker()
+}
+
+function createGeneratedRuleDraft(input: Omit<GeneratedRuleDraft, 'id' | 'enabled' | 'createdAt'>): GeneratedRuleDraft {
+  return {
+    ...input,
+    id: `${Date.now()}-${crypto.getRandomValues(new Uint32Array(1))[0].toString(36)}`,
+    enabled: true,
+    createdAt: Date.now(),
+  }
+}
+
+function getEnabledDraftCss() {
+  return generatedRuleDrafts.value
+    .filter((draft) => draft.enabled)
+    .slice()
+    .reverse()
+    .map((draft) => draft.css)
+    .join('\n\n')
+}
+
+function getEnabledDraftInstruction() {
+  const enabledDrafts = generatedRuleDrafts.value.filter((draft) => draft.enabled)
+
+  if (enabledDrafts.length === 1) {
+    return enabledDrafts[0].instruction
+  }
+
+  return `已启用 ${enabledDrafts.length} 条生成规则`
+}
+
+async function applyEnabledDrafts() {
+  const css = getEnabledDraftCss()
+
+  await sendToActiveTab<ApplyRuleMessage>({
+    type: 'CLEANWEB_APPLY_RULE',
+    css,
+    instruction: getEnabledDraftInstruction(),
+    save: true,
+  })
+
+  hasSavedRule.value = css.trim().length > 0
+}
+
+function selectRuleDraft(id: string) {
+  const draft = generatedRuleDrafts.value.find((item) => item.id === id)
+  if (!draft) return
+
+  selectedDraftId.value = draft.id
+  generatedCss.value = draft.css
+}
+
+function updateGeneratedCss(value: string) {
+  generatedCss.value = value
+
+  if (!selectedDraftId.value) return
+
+  generatedRuleDrafts.value = generatedRuleDrafts.value.map((draft) => (
+    draft.id === selectedDraftId.value ? { ...draft, css: value } : draft
+  ))
+}
+
+async function toggleRuleDraft(id: string, enabled: boolean) {
+  generatedRuleDrafts.value = generatedRuleDrafts.value.map((draft) => (
+    draft.id === id ? { ...draft, enabled } : draft
+  ))
+
+  isBusy.value = true
+  status.value = enabled ? '正在启用这条规则' : '正在停用这条规则'
+
+  try {
+    await applyEnabledDrafts()
+    status.value = enabled ? '规则已启用' : '规则已停用'
+  } catch (error) {
+    status.value = error instanceof Error ? error.message : '更新规则失败'
+  } finally {
+    isBusy.value = false
+  }
+}
+
+function getStatusPreview(message: string) {
+  const normalized = message.replace(/\s+/g, ' ').trim()
+  const maxLength = 72
+
+  if (normalized.length <= maxLength) {
+    return normalized
+  }
+
+  return `${normalized.slice(0, maxLength)}...`
 }
 
 async function startElementPicker() {
@@ -220,7 +324,7 @@ async function startElementPicker() {
 </script>
 
 <template>
-  <main class="grid min-h-0 content-start gap-3 p-4">
+  <main class="grid min-h-0 w-full max-w-full content-start gap-3 overflow-hidden p-4">
     <template v-if="!ready">
       <div class="flex h-8 items-center px-1">
         <span class="h-1.5 w-8 animate-pulse rounded-full bg-brand-tint"></span>
@@ -237,8 +341,11 @@ async function startElementPicker() {
 
         <ModeTabs v-model="mode" />
 
-        <CleanModePanel v-if="mode === 'clean'" v-model:instruction="instruction" v-model:generated-css="generatedCss"
-          :is-busy="isBusy" :has-api-key="hasApiKey" @analyze="collectDomSummary" @go-settings="mode = 'settings'" />
+        <CleanModePanel v-if="mode === 'clean'" v-model:instruction="instruction" :generated-css="generatedCss"
+          :rule-drafts="generatedRuleDrafts" :selected-draft-id="selectedDraftId" :is-busy="isBusy"
+          :has-api-key="hasApiKey" @update:instruction="instruction = $event" @update:generated-css="updateGeneratedCss"
+          @select-rule-draft="selectRuleDraft" @toggle-rule-draft="toggleRuleDraft" @analyze="collectDomSummary"
+          @go-settings="mode = 'settings'" />
         <SelectModePanel v-else :is-busy="isBusy" :has-saved-rule="hasSavedRule" @start-picker="prepareElementPicker" />
       </template>
 

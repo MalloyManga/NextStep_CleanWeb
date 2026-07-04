@@ -63,6 +63,18 @@ export interface CleanWebRule {
   updatedAt: number;
 }
 
+export type GeneratedRuleSource = 'full-page' | 'element-picker' | 'fallback';
+
+export interface GeneratedRuleDraft {
+  id: string;
+  instruction: string;
+  css: string;
+  explanation: string;
+  enabled: boolean;
+  createdAt: number;
+  source: GeneratedRuleSource;
+}
+
 export interface LlmSettings {
   apiKey: string;
   baseUrl: string;

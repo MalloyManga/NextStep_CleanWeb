@@ -29,8 +29,22 @@
   --color-code-text: #d7f0e6;
 }
 
-body {
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
   width: 384px;
+  min-width: 384px;
+  max-width: 384px;
+  overflow-x: hidden;
+}
+
+body {
   margin: 0;
   color: var(--color-ink);
   background: var(--color-paper);
@@ -44,6 +58,7 @@ body::-webkit-scrollbar {
 }
 
 #app {
+  min-width: 0;
   scrollbar-width: none;
 }
 
@@ -63,4 +78,19 @@ button {
 
 button:disabled {
   cursor: not-allowed;
+}
+
+.cleanweb-css-preview {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  inline-size: 100%;
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  overflow: auto;
+  overflow-x: hidden;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: pre-wrap;
+  resize: vertical;
 }
