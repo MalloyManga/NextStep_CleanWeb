@@ -263,39 +263,13 @@ function startElementPicker() {
 
   const selectorLabel = document.createElement('span');
   selectorLabel.style.cssText = 'flex:1;min-width:0;font-size:11px;font-weight:600;color:#8a9499;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
-
-  // 完成按钮：结束连续选择
-  const finishButton = document.createElement('button');
-  finishButton.type = 'button';
-  finishButton.setAttribute('aria-label', '完成选择');
-  finishButton.textContent = '完成';
-  finishButton.style.cssText = [
-    'display:inline-flex',
-    'align-items:center',
-    'flex-shrink:0',
-    'height:22px',
-    'padding:0 8px',
-    'border:0',
-    'border-radius:6px',
-    'background:rgb(46 111 99 / 10%)',
-    'color:#2e6f63',
-    'font-size:11px',
-    'font-weight:700',
-    'cursor:pointer',
-  ].join(';');
-  finishButton.addEventListener('click', (event: Event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    stopElementPicker();
-  });
-
-  head.append(selectorLabel, finishButton);
+  head.append(selectorLabel);
 
   // 按钮行
   const actions = document.createElement('div');
   actions.style.cssText = 'display:flex;gap:6px';
 
-  const hideButton = createPickerButton('隐藏', createTrashIcon(), true);
+  const hideButton = createPickerButton('智能隐藏', createTrashIcon(), true);
   hideButton.addEventListener('click', handleHideSelectedElement);
   const aiButton = createPickerButton('AI 修改', createSparkleIcon(), false);
   aiButton.addEventListener('click', showAiPanel);
@@ -316,7 +290,7 @@ function startElementPicker() {
 
   toolbar.append(panel);
 
-  // 连续选择状态条：常驻左上角，显示已隐藏数 + 退出提示
+  // 连续选择状态条：常驻左上角，显示已处理数 + 退出提示
   const statusBar = document.createElement('div');
   statusBar.style.cssText = [
     'position: fixed',
@@ -335,7 +309,7 @@ function startElementPicker() {
     'font-weight: 600',
     'backdrop-filter: blur(6px)',
   ].join(';');
-  statusBar.textContent = '点击元素隐藏 · 按 Esc 完成';
+  statusBar.textContent = '点击元素处理 · 按 Esc 完成';
 
   layer.append(hoverOutline, selectOutline, toolbar, statusBar);
   document.documentElement.appendChild(layer);
@@ -467,7 +441,7 @@ function continuePicking() {
   state.panel.style.display = 'none';
 
   const n = state.hiddenCount;
-  state.statusBar.textContent = n > 0 ? `已隐藏 ${n} 项 · 继续点击或按 Esc 完成` : '点击元素隐藏 · 按 Esc 完成';
+  state.statusBar.textContent = n > 0 ? `已处理 ${n} 项 · 继续选择或按 Esc 完成` : '选择目标元素 · 按 Esc 完成';
 }
 
 function showAiPanel(event: MouseEvent) {

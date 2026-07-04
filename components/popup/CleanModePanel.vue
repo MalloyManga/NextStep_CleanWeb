@@ -8,14 +8,14 @@ const props = defineProps<{
   instruction: string
   generatedCss: string
   isBusy: boolean
-  canApply: boolean
+  hasApiKey: boolean
 }>()
 
 const emit = defineEmits<{
   'update:instruction': [value: string]
   'update:generatedCss': [value: string]
   analyze: []
-  apply: []
+  'go-settings': []
 }>()
 
 const showCss = ref(false)
@@ -40,6 +40,17 @@ function onKeydown(event: KeyboardEvent) {
 
 <template>
   <div class="grid gap-3">
+    <!-- P0-2：未配置 AI Key 提示 -->
+    <div v-if="!hasApiKey"
+      class="flex items-center justify-between gap-2 rounded-lg border border-brand/25 bg-brand-tint px-3 py-2">
+      <span class="min-w-0 text-xs text-ink-soft">未配置 AI Key，将使用通用规则</span>
+      <button type="button"
+        class="shrink-0 rounded-md bg-brand px-2 py-1 text-xs font-medium text-white transition hover:bg-brand-dark"
+        @click="$emit('go-settings')">
+        去设置
+      </button>
+    </div>
+
     <label class="grid gap-1.5">
       <span class="text-xs font-semibold text-ink-soft">净化指令</span>
       <div class="relative">
@@ -56,12 +67,6 @@ function onKeydown(event: KeyboardEvent) {
         </button>
       </div>
     </label>
-
-    <button v-if="canApply" type="button" :disabled="isBusy"
-      class="flex h-9 items-center justify-center rounded-lg border border-line bg-white px-3 text-sm font-medium text-ink-soft transition hover:border-brand/40 hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
-      @click="$emit('apply')">
-      应用并保存
-    </button>
 
     <button type="button" class="flex items-center gap-1 text-left text-xs text-muted transition hover:text-ink-soft"
       @click="showCss = !showCss">

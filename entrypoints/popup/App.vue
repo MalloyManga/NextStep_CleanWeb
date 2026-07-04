@@ -38,7 +38,7 @@ const llmSettings = ref<LlmSettings>({
   model: 'gpt-4o-mini',
 })
 
-const canApply = computed(() => hasGenerated.value && generatedCss.value.trim().length > 0)
+const hasApiKey = computed(() => llmSettings.value.apiKey.trim().length > 0)
 
 onMounted(async () => {
   currentSite.value = await getCurrentSiteLabel()
@@ -158,31 +158,19 @@ async function collectDomSummary() {
     })
     generatedCss.value = result.css || FALLBACK_CSS
     hasGenerated.value = true
-    status.value = result.explanation
-  } catch (error) {
-    status.value = error instanceof Error ? error.message : '读取页面结构失败'
-  } finally {
-    isBusy.value = false
-  }
-}
 
-async function applyCss() {
-  if (!canApply.value) return
-
-  isBusy.value = true
-  status.value = '正在应用净化规则'
-
-  try {
+    // P0-1：生成后自动应用 + 保存，一步到位
+    status.value = '正在应用净化规则'
     await sendToActiveTab<ApplyRuleMessage>({
       type: 'CLEANWEB_APPLY_RULE',
       css: generatedCss.value,
       instruction: instruction.value,
       save: true,
     })
-    status.value = '规则已应用并保存'
     hasSavedRule.value = true
+    status.value = result.explanation || '规则已应用并保存'
   } catch (error) {
-    status.value = error instanceof Error ? error.message : '应用规则失败'
+    status.value = error instanceof Error ? error.message : '读取页面结构失败'
   } finally {
     isBusy.value = false
   }
@@ -249,7 +237,7 @@ async function startElementPicker() {
         <ModeTabs v-model="mode" />
 
         <CleanModePanel v-if="mode === 'clean'" v-model:instruction="instruction" v-model:generated-css="generatedCss"
-          :is-busy="isBusy" :can-apply="canApply" @analyze="collectDomSummary" @apply="applyCss" />
+          :is-busy="isBusy" :has-api-key="hasApiKey" @analyze="collectDomSummary" @go-settings="mode = 'settings'" />
         <SelectModePanel v-else :is-busy="isBusy" :has-saved-rule="hasSavedRule" @start-picker="prepareElementPicker" />
       </template>
 
