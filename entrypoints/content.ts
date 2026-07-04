@@ -17,6 +17,7 @@ const PICKER_LAYER_ID = 'cleanweb-picker-layer';
 const PICKER_OUTLINE_ID = 'cleanweb-picker-outline';
 const PICKER_TOOLBAR_ID = 'cleanweb-picker-toolbar';
 const PICKER_PANEL_ID = 'cleanweb-picker-ai-panel';
+const PICKER_SPINNER_CLASS = 'cleanweb-picker-spinner';
 const GUARD_STYLE_ID = 'cleanweb-anti-flicker-style';
 const GUARD_CLASS = 'cleanweb-anti-flicker';
 const RULE_MARKER_PREFIX = 'cleanweb:has-rule:';
@@ -266,6 +267,20 @@ function startElementPicker() {
     'font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif',
   ].join(';');
 
+  const pickerStyle = document.createElement('style');
+  pickerStyle.textContent = `
+    @keyframes cleanweb-picker-spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
+    .${PICKER_SPINNER_CLASS} {
+      animation: cleanweb-picker-spin 0.8s linear infinite;
+      transform-box: fill-box;
+      transform-origin: center;
+    }
+  `;
+
   // 悬停描边：浅色细线
   const hoverOutline = document.createElement('div');
   hoverOutline.id = 'cleanweb-picker-hover';
@@ -367,7 +382,7 @@ function startElementPicker() {
   ].join(';');
   statusBar.textContent = '点击元素处理 · 按 Esc 完成';
 
-  layer.append(hoverOutline, selectOutline, toolbar, statusBar);
+  layer.append(pickerStyle, hoverOutline, selectOutline, toolbar, statusBar);
   document.documentElement.appendChild(layer);
 
   pickerState = {
@@ -544,36 +559,57 @@ async function handleHideSelectedElement(event: MouseEvent) {
   event.preventDefault();
   event.stopPropagation();
 
+  const button = event.currentTarget instanceof HTMLButtonElement ? event.currentTarget : null;
+  if (button?.disabled) return;
+
   const state = pickerState;
   const target = state?.selectedTarget;
   if (!target) return;
 
-  const context = collectElementContext(target, { ancestorDepth: 4, siblingCount: 4 });
-  context.recommendedTarget = toElementContextItem(target);
-
-  const message: SmartHideMessage = { type: 'CLEANWEB_SMART_HIDE', context };
-  const response = await browser.runtime.sendMessage(message);
-  if (!response?.ok || !response.result) return;
-  const result = response.result as SmartHideResult;
-
-  const hostname = getHostname();
-  const existingRule = await getRule(hostname);
-  const nextCss = appendCssRule(existingRule?.css, result.css);
-
-  injectCss(nextCss);
-  await saveRule(hostname, {
-    css: nextCss,
-    instruction: appendInstruction(existingRule?.instruction, `隐藏 ${result.selector}：${result.explanation}`),
-    updatedAt: Date.now(),
-    drafts: existingRule?.drafts,
-  });
-  markRuleSaved(hostname);
-
-  // 连续选择：计数 + 继续，不退出
+  setPickerButtonLoading(button, '处理中');
   if (state) {
-    state.hiddenCount += 1;
+    state.statusBar.textContent = '智能隐藏生成中…';
   }
-  continuePicking();
+
+  try {
+    const context = collectElementContext(target, { ancestorDepth: 4, siblingCount: 4 });
+    context.recommendedTarget = toElementContextItem(target);
+
+    const message: SmartHideMessage = { type: 'CLEANWEB_SMART_HIDE', context };
+    const response = await browser.runtime.sendMessage(message);
+    if (!response?.ok || !response.result) {
+      if (state) {
+        state.statusBar.textContent = response?.error || '智能隐藏失败 · 继续选择或按 Esc 完成';
+      }
+      return;
+    }
+    const result = response.result as SmartHideResult;
+
+    const hostname = getHostname();
+    const existingRule = await getRule(hostname);
+    const nextCss = appendCssRule(existingRule?.css, result.css);
+
+    injectCss(nextCss);
+    await saveRule(hostname, {
+      css: nextCss,
+      instruction: appendInstruction(existingRule?.instruction, `隐藏 ${result.selector}：${result.explanation}`),
+      updatedAt: Date.now(),
+      drafts: existingRule?.drafts,
+    });
+    markRuleSaved(hostname);
+
+    // 连续选择：计数 + 继续，不退出
+    if (state) {
+      state.hiddenCount += 1;
+    }
+    continuePicking();
+  } catch (error) {
+    if (state) {
+      state.statusBar.textContent = error instanceof Error ? error.message : '智能隐藏失败';
+    }
+  } finally {
+    restorePickerButton(button, '智能隐藏', createTrashIcon());
+  }
 }
 
 // 连续选择：隐藏后重置选中态，恢复悬停，更新状态条
@@ -642,6 +678,33 @@ function createSparkleIcon() {
   const svg = createSvgIcon();
   svg.innerHTML = '<path d="M12 3l1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7L12 3z"/><path d="M5 3v4"/><path d="M3 5h4"/><path d="M19 17v4"/><path d="M17 19h4"/>';
   return svg;
+}
+
+function createSpinnerIcon() {
+  const svg = createSvgIcon();
+  svg.classList.add(PICKER_SPINNER_CLASS);
+  svg.innerHTML = '<path d="M21 12a9 9 0 1 1-3.2-6.9"/>';
+  return svg;
+}
+
+function setPickerButtonLoading(button: HTMLButtonElement | null, label: string) {
+  if (!button) return;
+
+  button.disabled = true;
+  restorePickerButton(button, label, createSpinnerIcon());
+  button.style.opacity = '0.9';
+}
+
+function restorePickerButton(button: HTMLButtonElement | null, label: string, icon: SVGElement) {
+  if (!button) return;
+
+  button.disabled = false;
+  button.style.opacity = '';
+
+  const span = document.createElement('span');
+  span.textContent = label;
+  span.style.cssText = 'white-space:nowrap;word-break:keep-all';
+  button.replaceChildren(icon, span);
 }
 
 function createSvgIcon() {
