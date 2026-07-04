@@ -261,7 +261,8 @@ function startElementPicker() {
     'position: fixed',
     'inset: 0',
     'z-index: 2147483646',
-    'pointer-events: none',
+    'pointer-events: auto',
+    'cursor: crosshair',
     'font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif',
   ].join(';');
 
@@ -434,7 +435,7 @@ function handlePickerMouseMove(event: MouseEvent) {
   state.pointer = { x: event.clientX, y: event.clientY };
 
   const target = getPickerEventElement(event);
-  if (!target || isCleanWebElement(target)) {
+  if (!target) {
     return;
   }
 
@@ -450,8 +451,8 @@ function guardPickerPointerEvent(event: MouseEvent | PointerEvent) {
   const state = pickerState;
   if (!state) return;
 
-  const target = getPickerEventElement(event);
-  if (target && isCleanWebElement(target)) {
+  const target = getEventTargetElement(event);
+  if (target && isCleanWebControlElement(target)) {
     return;
   }
 
@@ -459,24 +460,36 @@ function guardPickerPointerEvent(event: MouseEvent | PointerEvent) {
 }
 
 function getPickerEventElement(event: Event) {
+  if (event instanceof MouseEvent) {
+    const element = getPageElementAtPoint(event.clientX, event.clientY);
+    if (element) return element;
+  }
+
+  return getEventTargetElement(event);
+}
+
+function getEventTargetElement(event: Event) {
   for (const item of event.composedPath()) {
-    if (item instanceof HTMLElement) {
-      return item;
-    }
-
-    if (item instanceof SVGElement && item.parentElement) {
-      return item.parentElement;
-    }
+    const element = toHtmlElement(item);
+    if (element) return element;
   }
 
-  if (event.target instanceof HTMLElement) {
-    return event.target;
+  return toHtmlElement(event.target);
+}
+
+function getPageElementAtPoint(x: number, y: number) {
+  for (const element of document.elementsFromPoint(x, y)) {
+    const htmlElement = toHtmlElement(element);
+    if (!htmlElement || isCleanWebElement(htmlElement)) continue;
+    return htmlElement;
   }
 
-  if (event.target instanceof SVGElement) {
-    return event.target.parentElement;
-  }
+  return null;
+}
 
+function toHtmlElement(value: EventTarget | Element | null) {
+  if (value instanceof HTMLElement) return value;
+  if (value instanceof SVGElement) return value.parentElement;
   return null;
 }
 
@@ -490,13 +503,14 @@ function handlePickerClick(event: MouseEvent) {
   const state = pickerState;
   if (!state) return;
 
-  const target = getPickerEventElement(event);
-  if (target && isCleanWebElement(target)) {
+  const eventTarget = getEventTargetElement(event);
+  if (eventTarget && isCleanWebControlElement(eventTarget)) {
     return;
   }
 
   suppressPageEvent(event);
 
+  const target = getPickerEventElement(event);
   if (!target) {
     return;
   }
@@ -884,6 +898,10 @@ function getRectArea(rect: DOMRect) {
 
 function isCleanWebElement(element: HTMLElement) {
   return Boolean(element.closest(`#${PICKER_LAYER_ID}`));
+}
+
+function isCleanWebControlElement(element: HTMLElement) {
+  return Boolean(element.closest(`#${PICKER_TOOLBAR_ID}`));
 }
 
 function appendCssRule(currentCss: string | undefined, nextRule: string) {
