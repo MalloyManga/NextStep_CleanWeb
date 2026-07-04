@@ -8,6 +8,7 @@ import type { GeneratedRuleDraft } from '../../types/cleanweb'
 const props = defineProps<{
   instruction: string
   generatedCss: string
+  aiDebugText: string
   ruleDrafts: GeneratedRuleDraft[]
   selectedDraftId: string | null
   isBusy: boolean
@@ -19,11 +20,13 @@ const emit = defineEmits<{
   'update:generatedCss': [value: string]
   selectRuleDraft: [id: string]
   toggleRuleDraft: [id: string, enabled: boolean]
+  commitGeneratedCss: []
   analyze: []
   'go-settings': []
 }>()
 
 const showCss = ref(false)
+const showDebug = ref(false)
 
 const hasText = computed(() => props.instruction.trim().length > 0)
 const showStop = computed(() => props.isBusy && !hasText.value)
@@ -107,11 +110,24 @@ function onKeydown(event: KeyboardEvent) {
       </div>
     </section>
 
+    <button v-if="aiDebugText" type="button"
+      class="flex min-w-0 items-center gap-1 rounded-lg border border-line bg-brand-tint px-2.5 py-2 text-left text-xs font-medium text-brand transition hover:border-brand/30"
+      @click="showDebug = !showDebug">
+      <ChevronRightIcon class="h-3.5 w-3.5 transition-transform" :class="showDebug ? 'rotate-90' : ''" />
+      <span class="min-w-0 truncate">AI 调试信息 / 原始返回</span>
+    </button>
+
+    <div v-if="showDebug && aiDebugText" class="grid min-w-0 max-w-full overflow-hidden">
+      <textarea :value="aiDebugText" rows="9" readonly wrap="soft" spellcheck="false"
+        class="cleanweb-css-preview block min-w-0 max-w-full resize-y rounded-lg border border-line bg-code p-3 font-mono text-[11px] leading-relaxed text-code-text outline-none" />
+    </div>
+
     <div v-if="showCss" class="grid min-w-0 max-w-full overflow-hidden">
       <textarea :value="generatedCss" rows="7" wrap="soft" spellcheck="false"
         placeholder="/* 点击发送后将在此显示生成的 CSS */"
         class="cleanweb-css-preview block min-w-0 max-w-full resize-y rounded-lg border border-line bg-code p-3 font-mono text-xs leading-relaxed text-code-text outline-none transition focus:border-brand"
-        @input="$emit('update:generatedCss', ($event.target as HTMLTextAreaElement).value)" />
+        @input="$emit('update:generatedCss', ($event.target as HTMLTextAreaElement).value)"
+        @change="$emit('commitGeneratedCss')" />
     </div>
   </div>
 </template>

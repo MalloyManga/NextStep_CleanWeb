@@ -1,7 +1,8 @@
 import { storage } from 'wxt/utils/storage';
-import type { CleanWebRule, LlmSettings } from '../types/cleanweb';
+import type { CleanWebRule, GenerationState, LlmSettings } from '../types/cleanweb';
 
 const RULE_PREFIX = 'local:cleanweb:rule:';
+const GENERATION_PREFIX = 'local:cleanweb:generation:';
 const LLM_SETTINGS_KEY = 'local:cleanweb:llm-settings';
 
 export function getHostname() {
@@ -18,6 +19,18 @@ export function saveRule(hostname: string, rule: CleanWebRule) {
 
 export function removeRule(hostname: string) {
   return storage.removeItem(`${RULE_PREFIX}${hostname}`);
+}
+
+export function getGenerationState(hostname: string) {
+  return storage.getItem<GenerationState>(`${GENERATION_PREFIX}${hostname}`);
+}
+
+export function saveGenerationState(hostname: string, state: GenerationState) {
+  return storage.setItem(`${GENERATION_PREFIX}${hostname}`, state);
+}
+
+export function removeGenerationState(hostname: string) {
+  return storage.removeItem(`${GENERATION_PREFIX}${hostname}`);
 }
 
 export function getLlmSettings() {

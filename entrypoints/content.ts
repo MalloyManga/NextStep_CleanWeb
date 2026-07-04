@@ -22,6 +22,30 @@ const MAX_HIDE_TARGET_AREA_RATIO = 0.72;
 
 let pickerState: PickerState | null = null;
 
+const onPickerMouseMove: EventListener = (event) => {
+  if (event instanceof MouseEvent) {
+    handlePickerMouseMove(event);
+  }
+};
+
+const onPickerPointerGuard: EventListener = (event) => {
+  if (event instanceof MouseEvent || event instanceof PointerEvent) {
+    guardPickerPointerEvent(event);
+  }
+};
+
+const onPickerClick: EventListener = (event) => {
+  if (event instanceof MouseEvent) {
+    handlePickerClick(event);
+  }
+};
+
+const onPickerKeyDown: EventListener = (event) => {
+  if (event instanceof KeyboardEvent) {
+    handlePickerKeyDown(event);
+  }
+};
+
 export default defineContentScript({
   matches: ['<all_urls>'],
   runAt: 'document_start',
@@ -33,6 +57,10 @@ export default defineContentScript({
     browser.runtime.onMessage.addListener((message: CleanWebMessage): Promise<CleanWebResponse> => {
       if (message.type === 'CLEANWEB_COLLECT_DOM_SUMMARY') {
         const summary = collectDomSummary();
+        console.info('[CleanWeb][DOM] collected summary', {
+          count: summary.length,
+          url: window.location.href,
+        });
         return Promise.resolve({
           ok: true,
           summary,
@@ -76,13 +104,36 @@ async function applySavedRule(hostname: string, guard: AntiFlickerGuard | null) 
 }
 
 async function handleApplyRule(message: ApplyRuleMessage): Promise<CleanWebResponse> {
+  if (!message.css.trim()) {
+    removeInjectedStyle();
+    console.info('[CleanWeb][Apply] removed injected CSS', {
+      hostname: getHostname(),
+      save: message.save,
+    });
+
+    if (message.save) {
+      await removeRule(getHostname());
+      clearRuleMarker(getHostname());
+    }
+
+    return { ok: true };
+  }
+
   injectCss(message.css);
+  console.info('[CleanWeb][Apply] injected CSS rule', {
+    hostname: getHostname(),
+    cssLength: message.css.length,
+    instruction: message.instruction,
+    save: message.save,
+    draftCount: message.drafts?.length ?? 0,
+  });
 
   if (message.save) {
     await saveRule(getHostname(), {
       css: message.css,
       instruction: message.instruction,
       updatedAt: Date.now(),
+      drafts: message.drafts,
     });
     markRuleSaved(getHostname());
   }
@@ -329,19 +380,47 @@ function startElementPicker() {
     hiddenCount: 0,
   };
 
-  window.addEventListener('mousemove', handlePickerMouseMove, true);
-  window.addEventListener('click', handlePickerClick, true);
-  window.addEventListener('keydown', handlePickerKeyDown, true);
+  addPickerEventListeners();
+  console.info('[CleanWeb][Picker] started');
 }
 
 function stopElementPicker() {
   if (!pickerState) return;
 
-  window.removeEventListener('mousemove', handlePickerMouseMove, true);
-  window.removeEventListener('click', handlePickerClick, true);
-  window.removeEventListener('keydown', handlePickerKeyDown, true);
+  removePickerEventListeners();
   pickerState.layer.remove();
   pickerState = null;
+  console.info('[CleanWeb][Picker] stopped');
+}
+
+function addPickerEventListeners() {
+  for (const target of getPickerEventTargets()) {
+    target.addEventListener('mousemove', onPickerMouseMove, true);
+    target.addEventListener('pointerdown', onPickerPointerGuard, true);
+    target.addEventListener('mousedown', onPickerPointerGuard, true);
+    target.addEventListener('mouseup', onPickerPointerGuard, true);
+    target.addEventListener('auxclick', onPickerPointerGuard, true);
+    target.addEventListener('dblclick', onPickerPointerGuard, true);
+    target.addEventListener('click', onPickerClick, true);
+    target.addEventListener('keydown', onPickerKeyDown, true);
+  }
+}
+
+function removePickerEventListeners() {
+  for (const target of getPickerEventTargets()) {
+    target.removeEventListener('mousemove', onPickerMouseMove, true);
+    target.removeEventListener('pointerdown', onPickerPointerGuard, true);
+    target.removeEventListener('mousedown', onPickerPointerGuard, true);
+    target.removeEventListener('mouseup', onPickerPointerGuard, true);
+    target.removeEventListener('auxclick', onPickerPointerGuard, true);
+    target.removeEventListener('dblclick', onPickerPointerGuard, true);
+    target.removeEventListener('click', onPickerClick, true);
+    target.removeEventListener('keydown', onPickerKeyDown, true);
+  }
+}
+
+function getPickerEventTargets(): EventTarget[] {
+  return [window, document, document.documentElement];
 }
 
 function handlePickerMouseMove(event: MouseEvent) {
@@ -350,8 +429,8 @@ function handlePickerMouseMove(event: MouseEvent) {
 
   state.pointer = { x: event.clientX, y: event.clientY };
 
-  const target = event.target;
-  if (!(target instanceof HTMLElement) || isCleanWebElement(target)) {
+  const target = getPickerEventElement(event);
+  if (!target || isCleanWebElement(target)) {
     return;
   }
 
@@ -363,17 +442,60 @@ function handlePickerMouseMove(event: MouseEvent) {
   }
 }
 
+function guardPickerPointerEvent(event: MouseEvent | PointerEvent) {
+  const state = pickerState;
+  if (!state) return;
+
+  const target = getPickerEventElement(event);
+  if (target && isCleanWebElement(target)) {
+    return;
+  }
+
+  suppressPageEvent(event);
+}
+
+function getPickerEventElement(event: Event) {
+  for (const item of event.composedPath()) {
+    if (item instanceof HTMLElement) {
+      return item;
+    }
+
+    if (item instanceof SVGElement && item.parentElement) {
+      return item.parentElement;
+    }
+  }
+
+  if (event.target instanceof HTMLElement) {
+    return event.target;
+  }
+
+  if (event.target instanceof SVGElement) {
+    return event.target.parentElement;
+  }
+
+  return null;
+}
+
+function suppressPageEvent(event: Event) {
+  event.preventDefault();
+  event.stopPropagation();
+  event.stopImmediatePropagation();
+}
+
 function handlePickerClick(event: MouseEvent) {
   const state = pickerState;
   if (!state) return;
 
-  const target = event.target;
-  if (!(target instanceof HTMLElement) || isCleanWebElement(target)) {
+  const target = getPickerEventElement(event);
+  if (target && isCleanWebElement(target)) {
     return;
   }
 
-  event.preventDefault();
-  event.stopPropagation();
+  suppressPageEvent(event);
+
+  if (!target) {
+    return;
+  }
 
   const hideTarget = findSmartHideTarget(target);
   state.selectedElement = target;
@@ -395,7 +517,7 @@ function handlePickerClick(event: MouseEvent) {
 
 function handlePickerKeyDown(event: KeyboardEvent) {
   if (event.key === 'Escape') {
-    event.preventDefault();
+    suppressPageEvent(event);
     stopElementPicker();
   }
 }
@@ -419,6 +541,7 @@ async function handleHideSelectedElement(event: MouseEvent) {
     css: nextCss,
     instruction: appendInstruction(existingRule?.instruction, `隐藏 ${selector}`),
     updatedAt: Date.now(),
+    drafts: existingRule?.drafts,
   });
   markRuleSaved(hostname);
 

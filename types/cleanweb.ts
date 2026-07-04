@@ -61,9 +61,26 @@ export interface CleanWebRule {
   css: string;
   instruction: string;
   updatedAt: number;
+  drafts?: GeneratedRuleDraft[];
 }
 
 export type GeneratedRuleSource = 'full-page' | 'element-picker' | 'fallback';
+
+export interface AiDebugLog {
+  instruction: string;
+  model: string;
+  hasBaseUrl: boolean;
+  summaryCount: number;
+  requestStartedAt: number;
+  responseFinishedAt?: number;
+  rawResponse?: string;
+  parseError?: string;
+  requestError?: string;
+  cssLength?: number;
+  explanation?: string;
+  usedFallback: boolean;
+  retriedWithoutResponseFormat: boolean;
+}
 
 export interface GeneratedRuleDraft {
   id: string;
@@ -73,12 +90,27 @@ export interface GeneratedRuleDraft {
   enabled: boolean;
   createdAt: number;
   source: GeneratedRuleSource;
+  debug?: AiDebugLog;
 }
 
 export interface LlmSettings {
   apiKey: string;
   baseUrl: string;
   model: string;
+}
+
+export type GenerationStatus = 'idle' | 'running' | 'success' | 'error';
+
+export interface GenerationState {
+  hostname: string;
+  status: GenerationStatus;
+  instruction: string;
+  summaryCount: number;
+  startedAt: number;
+  updatedAt: number;
+  draft?: GeneratedRuleDraft;
+  debug?: AiDebugLog;
+  error?: string;
 }
 
 export interface DomSummaryMessage {
@@ -90,6 +122,7 @@ export interface ApplyRuleMessage {
   css: string;
   instruction: string;
   save: boolean;
+  drafts?: GeneratedRuleDraft[];
 }
 
 export interface ResetRuleMessage {
@@ -100,15 +133,34 @@ export interface StartElementPickerMessage {
   type: 'CLEANWEB_START_ELEMENT_PICKER';
 }
 
+export interface StartGenerationMessage {
+  type: 'CLEANWEB_START_GENERATION';
+  tabId: number;
+  hostname: string;
+  instruction: string;
+  existingDrafts: GeneratedRuleDraft[];
+  settings: LlmSettings;
+}
+
+export interface GetGenerationStateMessage {
+  type: 'CLEANWEB_GET_GENERATION_STATE';
+  hostname: string;
+}
+
 export type CleanWebMessage =
   | DomSummaryMessage
   | ApplyRuleMessage
   | ResetRuleMessage
   | StartElementPickerMessage;
 
+export type CleanWebBackgroundMessage =
+  | StartGenerationMessage
+  | GetGenerationStateMessage;
+
 export interface CleanWebResponse {
   ok: boolean;
   error?: string;
   summary?: DomSummaryItem[];
   summaryCount?: number;
+  generationState?: GenerationState;
 }
