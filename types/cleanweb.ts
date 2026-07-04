@@ -19,6 +19,7 @@ export interface DomSummaryItem {
 
 export interface ElementContextItem extends DomSummaryItem {
   depth: number;
+  areaRatio?: number;
 }
 
 export interface SelectedElementContext {
@@ -88,15 +89,41 @@ export interface StartElementPickerMessage {
   type: 'CLEANWEB_START_ELEMENT_PICKER';
 }
 
+export interface SmartHideMessage {
+  type: 'CLEANWEB_SMART_HIDE';
+  context: SelectedElementContext;
+}
+
+export interface AiModifyMessage {
+  type: 'CLEANWEB_AI_MODIFY';
+  instruction: string;
+  context: SelectedElementContext;
+}
+
+export interface SmartHideResponse {
+  ok: boolean;
+  result?: SmartHideResult;
+  error?: string;
+}
+
+export interface AiModifyResponse {
+  ok: boolean;
+  result?: AiModifyResult;
+  error?: string;
+}
+
 export type CleanWebMessage =
   | DomSummaryMessage
   | ApplyRuleMessage
   | ResetRuleMessage
-  | StartElementPickerMessage;
+  | StartElementPickerMessage
+  | SmartHideMessage
+  | AiModifyMessage;
 
 export interface CleanWebResponse {
   ok: boolean;
   error?: string;
   summary?: DomSummaryItem[];
   summaryCount?: number;
+  result?: SmartHideResult | AiModifyResult;
 }

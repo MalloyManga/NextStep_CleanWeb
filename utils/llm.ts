@@ -1,7 +1,13 @@
 import OpenAI from 'openai';
-import type { DomSummaryItem } from '../types/cleanweb';
-
-import type { LlmSettings } from '../types/cleanweb';
+import type {
+  AiModifyRequest,
+  AiModifyResult,
+  DomSummaryItem,
+  LlmSettings,
+  SelectedElementContext,
+  SmartHideRequest,
+  SmartHideResult,
+} from '../types/cleanweb';
 
 export interface GenerateCssInput {
   instruction: string;
@@ -54,16 +60,16 @@ export function getDefaultLlmConfig(): LlmSettings {
     model: typeof __LLM_MODEL__ !== 'undefined' ? __LLM_MODEL__ : 'gpt-4o-mini',
   };
 }
-
-function resolveConfig(input: GenerateCssInput): LlmSettings {
+async function resolveConfig(settings?: LlmSettings): Promise<LlmSettings> {
   const defaults = getDefaultLlmConfig();
-  const fromInput = input.settings;
+  const fromStorage = await import('../utils/storage').then((m) => m.getLlmSettings());
   const result = (
-    fromInput?.apiKey &&
-    fromInput?.baseUrl &&
-    fromInput?.model
-  ) ? fromInput : defaults;
+    fromStorage?.apiKey &&
+    fromStorage?.baseUrl &&
+    fromStorage?.model
+  ) ? fromStorage : defaults;
 
+  console.log(result);
   return {
     apiKey: result.apiKey.trim(),
     baseUrl: result.baseUrl.trim(),
@@ -72,7 +78,7 @@ function resolveConfig(input: GenerateCssInput): LlmSettings {
 }
 
 export async function generateCssRule(input: GenerateCssInput): Promise<GenerateCssResult> {
-  const config = resolveConfig(input);
+  const config = await resolveConfig(input.settings);
 
   console.log(config);
 
@@ -141,6 +147,185 @@ Generate CSS and respond with JSON only.`,
   } catch {
     return FALLBACK_RESULT_FAILED;
   }
+}
+
+export async function generateSmartHideRule(
+  request: SmartHideRequest,
+): Promise<SmartHideResult> {
+  const config = await resolveConfig();
+
+  if (!config.apiKey) {
+    return {
+      action: 'smart-hide',
+      selector: request.context.recommendedTarget?.selector ?? request.context.selected.selector,
+      css: fallbackSmartHideCss(request.context),
+      explanation: '未配置 API Key，使用内置规则隐藏推荐目标。',
+    };
+  }
+
+  const client = new OpenAI({
+    apiKey: config.apiKey,
+    baseURL: config.baseUrl,
+    dangerouslyAllowBrowser: true,
+  });
+
+  const contextText = formatSelectedElementContext(request.context);
+
+  const response = await client.chat.completions.create({
+    model: config.model,
+    messages: [
+      {
+        role: 'system',
+        content: `You are a web page cleaning assistant. Given a selected element and its ancestor chain, choose the best CSS selector to hide the most relevant container.
+
+Rules:
+- Only output a strict JSON object with fields: "selector", "css", "explanation".
+- The selector should target the smallest reasonable container that removes the visual noise.
+- Do not hide html, body, main, article, or any area larger than 70% of the viewport.
+- Use stable selectors: id, aria-label, role, then semantic class names.
+- Prefer the recommended target if one is provided, but improve it if possible.
+- CSS must only hide the target, and may use !important if necessary.`,
+      },
+      {
+        role: 'user',
+        content: `Selected element context:\n${contextText}\n\nReturn the best selector to hide.`,
+      },
+    ],
+    response_format: { type: 'json_object' },
+    max_tokens: 1024,
+  });
+
+  const raw = response.choices[0]?.message?.content?.trim() ?? '';
+  if (!raw) {
+    return {
+      action: 'smart-hide',
+      selector: request.context.recommendedTarget?.selector ?? request.context.selected.selector,
+      css: fallbackSmartHideCss(request.context),
+      explanation: 'AI 未返回结果，使用内置规则隐藏。',
+    };
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<SmartHideResult>;
+    const selector = parsed.selector?.trim() || (request.context.recommendedTarget?.selector ?? request.context.selected.selector);
+    const css = parsed.css?.trim() || `${selector} { display: none !important; }`;
+    return {
+      action: 'smart-hide',
+      selector,
+      css,
+      explanation: parsed.explanation?.trim() || '',
+    };
+  } catch {
+    return {
+      action: 'smart-hide',
+      selector: request.context.recommendedTarget?.selector ?? request.context.selected.selector,
+      css: fallbackSmartHideCss(request.context),
+      explanation: 'AI 返回解析失败，使用内置规则隐藏。',
+    };
+  }
+}
+
+export async function generateAiModifyRule(
+  request: AiModifyRequest,
+): Promise<AiModifyResult> {
+  const config = await resolveConfig();
+
+  if (!config.apiKey) {
+    return {
+      action: 'ai-modify',
+      css: '',
+      explanation: '未配置 API Key，无法执行 AI 修改。',
+    };
+  }
+
+  const client = new OpenAI({
+    apiKey: config.apiKey,
+    baseURL: config.baseUrl,
+    dangerouslyAllowBrowser: true,
+  });
+
+  const contextText = formatSelectedElementContext(request.context);
+
+  const response = await client.chat.completions.create({
+    model: config.model,
+    messages: [
+      {
+        role: 'system',
+        content: `You are a web page modification assistant. Given a selected element and its surrounding context, generate CSS to modify the element according to the user's instruction.
+
+Rules:
+- Only output a strict JSON object with fields: "css", "explanation".
+- Only affect the selected element or its reasonable parent container.
+- Do not generate JavaScript, HTML, or remote resources.
+- Use !important when necessary to override existing styles.
+- Keep the CSS scoped and safe.`,
+      },
+      {
+        role: 'user',
+        content: `User instruction: ${request.instruction}\n\nSelected element context:\n${contextText}\n\nGenerate CSS and respond with JSON only.`,
+      },
+    ],
+    response_format: { type: 'json_object' },
+    max_tokens: 1024,
+  });
+
+  const raw = response.choices[0]?.message?.content?.trim() ?? '';
+  if (!raw) {
+    return {
+      action: 'ai-modify',
+      css: '',
+      explanation: 'AI 未返回结果。',
+    };
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<AiModifyResult>;
+    return {
+      action: 'ai-modify',
+      css: parsed.css?.trim() || '',
+      explanation: parsed.explanation?.trim() || '',
+    };
+  } catch {
+    return {
+      action: 'ai-modify',
+      css: '',
+      explanation: 'AI 返回解析失败。',
+    };
+  }
+}
+
+function fallbackSmartHideCss(context: SelectedElementContext): string {
+  const selector = context.recommendedTarget?.selector ?? context.selected.selector;
+  return `${selector} {\n  display: none !important;\n}`;
+}
+
+function formatSelectedElementContext(context: SelectedElementContext): string {
+  const selected = context.selected;
+  const lines = [
+    `Selected: ${selected.tag} ${selected.selector}`,
+    `  rect: ${JSON.stringify(selected.rect)}`,
+    `  text: ${selected.text.slice(0, 80)}`,
+  ];
+
+  if (context.recommendedTarget) {
+    lines.push(`Recommended target: ${context.recommendedTarget.selector}`);
+  }
+
+  if (context.ancestors.length > 0) {
+    lines.push('Ancestors:');
+    for (const ancestor of context.ancestors) {
+      lines.push(`  ${ancestor.depth}: ${ancestor.tag} ${ancestor.selector} | text: ${ancestor.text.slice(0, 80)}`);
+    }
+  }
+
+  if (context.siblings.length > 0) {
+    lines.push('Siblings:');
+    for (const sibling of context.siblings) {
+      lines.push(`  ${sibling.tag} ${sibling.selector} | text: ${sibling.text.slice(0, 80)}`);
+    }
+  }
+
+  return lines.join('\n');
 }
 
 export function isFallbackResult(result: GenerateCssResult): boolean {
