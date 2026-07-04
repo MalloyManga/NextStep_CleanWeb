@@ -31,9 +31,15 @@ article {
   line-height: 1.8 !important;
 }`;
 
-const FALLBACK_RESULT: GenerateCssResult = {
+const FALLBACK_RESULT_NOKEY: GenerateCssResult = {
   css: FALLBACK_CSS,
   explanation: '未配置 API Key，使用内置通用规则隐藏常见侧边栏和广告区域。',
+  usedFallback: true,
+};
+
+const FALLBACK_RESULT_FAILED: GenerateCssResult = {
+  css: FALLBACK_CSS,
+  explanation: '生成规则失败，使用内置通用规则隐藏常见侧边栏和广告区域。',
   usedFallback: true,
 };
 
@@ -52,19 +58,26 @@ export function getDefaultLlmConfig(): LlmSettings {
 function resolveConfig(input: GenerateCssInput): LlmSettings {
   const defaults = getDefaultLlmConfig();
   const fromInput = input.settings;
+  const result = (
+    fromInput?.apiKey &&
+    fromInput?.baseUrl &&
+    fromInput?.model
+  ) ? fromInput : defaults;
 
   return {
-    apiKey: (fromInput?.apiKey ?? defaults.apiKey).trim(),
-    baseUrl: (fromInput?.baseUrl ?? defaults.baseUrl).trim() || 'https://api.openai.com/v1',
-    model: (fromInput?.model ?? defaults.model).trim() || 'gpt-4o-mini',
-  };
+    apiKey: result.apiKey.trim(),
+    baseUrl: result.baseUrl.trim(),
+    model: result.model.trim(),
+  }
 }
 
 export async function generateCssRule(input: GenerateCssInput): Promise<GenerateCssResult> {
   const config = resolveConfig(input);
 
+  console.log(config);
+
   if (!config.apiKey) {
-    return FALLBACK_RESULT;
+    return FALLBACK_RESULT_NOKEY;
   }
 
   const client = new OpenAI({
@@ -112,13 +125,13 @@ Generate CSS and respond with JSON only.`,
 
   const raw = response.choices[0]?.message?.content?.trim() ?? '';
   if (!raw) {
-    return FALLBACK_RESULT;
+    return FALLBACK_RESULT_FAILED;
   }
 
   try {
     const parsed = JSON.parse(raw) as Partial<GenerateCssResult>;
     if (!parsed.css || typeof parsed.css !== 'string') {
-      return FALLBACK_RESULT;
+      return FALLBACK_RESULT_FAILED;
     }
     return {
       css: parsed.css.trim(),
@@ -126,7 +139,7 @@ Generate CSS and respond with JSON only.`,
       usedFallback: false,
     };
   } catch {
-    return FALLBACK_RESULT;
+    return FALLBACK_RESULT_FAILED;
   }
 }
 
