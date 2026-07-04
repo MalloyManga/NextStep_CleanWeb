@@ -108,15 +108,22 @@ async function requestChatCompletion(
   return createFallbackPayload(`模型请求失败：${response.status}`);
 }
 
-function postChatCompletion(endpoint: string, apiKey: string, body: ChatCompletionRequest) {
-  return fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(body),
-  });
+async function postChatCompletion(endpoint: string, apiKey: string, body: ChatCompletionRequest): Promise<Response> {
+  try {
+    return await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+  } catch (error) {
+    return new Response(JSON.stringify({ error: String(error) }), {
+      status: 0,
+      statusText: String(error),
+    });
+  }
 }
 
 function createPromptMessages(input: GenerateCssInput): ChatMessage[] {
