@@ -141,7 +141,7 @@ npm.cmd run build 通过
 
 ```text
 API Key: sk-...
-Base URL: https://api.openai.com/v1
+Base URL: https://example.com/v1
 Model: gpt-4o-mini
 ```
 
@@ -151,6 +151,6 @@ Model: gpt-4o-mini
 
 ```text
 WXT_LLM_API_KEY=your_api_key
-WXT_LLM_BASE_URL=https://api.openai.com/v1
+WXT_LLM_BASE_URL=https://example.com/v1
 WXT_LLM_MODEL=gpt-4o-mini
 ```
