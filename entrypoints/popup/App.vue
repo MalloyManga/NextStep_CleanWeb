@@ -18,30 +18,33 @@ import type {
   StartElementPickerMessage,
 } from '../../types/cleanweb'
 import { FALLBACK_CSS, generateCssRule } from '../../utils/llm'
-import { getLlmSettings, saveLlmSettings } from '../../utils/storage'
+import { getLlmSettings, getRule, saveLlmSettings } from '../../utils/storage'
 
 const MODE_STORAGE_KEY = 'local:cleanweb:popup-mode'
 
 const instruction = ref('隐藏侧栏和广告，把正文区域居中放大')
-const generatedCss = ref(FALLBACK_CSS)
+const generatedCss = ref('')
 const status = ref('准备净化当前页面')
 const currentSite = ref('当前页面')
 const isBusy = ref(false)
 const summaryCount = ref(0)
 const mode = ref<WorkMode>('clean')
 const ready = ref(false)
+const hasGenerated = ref(false)
+const hasSavedRule = ref(false)
 const llmSettings = ref<LlmSettings>({
   apiKey: '',
   baseUrl: '',
   model: 'gpt-4o-mini',
 })
 
-const canApply = computed(() => generatedCss.value.trim().length > 0)
+const canApply = computed(() => hasGenerated.value && generatedCss.value.trim().length > 0)
 
 onMounted(async () => {
   currentSite.value = await getCurrentSiteLabel()
   mode.value = await getSavedMode()
   llmSettings.value = await getSavedLlmSettings()
+  hasSavedRule.value = await checkSavedRule()
   ready.value = true
 })
 
@@ -80,6 +83,19 @@ function getOriginLabel(url: string) {
   }
 
   return parsedUrl.hostname || '当前页面'
+}
+
+async function checkSavedRule() {
+  try {
+    const [tab] = await browser.tabs.query({ active: true, currentWindow: true })
+    if (!tab?.url) return false
+    const hostname = new URL(tab.url).hostname
+    if (!hostname) return false
+    const rule = await getRule(hostname)
+    return Boolean(rule?.css)
+  } catch {
+    return false
+  }
 }
 
 async function getSavedMode() {
@@ -141,6 +157,7 @@ async function collectDomSummary() {
       domSummary: response.summary ?? [],
     })
     generatedCss.value = result.css || FALLBACK_CSS
+    hasGenerated.value = true
     status.value = result.explanation
   } catch (error) {
     status.value = error instanceof Error ? error.message : '读取页面结构失败'
@@ -163,6 +180,7 @@ async function applyCss() {
       save: true,
     })
     status.value = '规则已应用并保存'
+    hasSavedRule.value = true
   } catch (error) {
     status.value = error instanceof Error ? error.message : '应用规则失败'
   } finally {
@@ -179,6 +197,9 @@ async function resetPage() {
       type: 'CLEANWEB_RESET_RULE',
     })
     status.value = '页面已恢复'
+    hasSavedRule.value = false
+    hasGenerated.value = false
+    generatedCss.value = ''
   } catch (error) {
     status.value = error instanceof Error ? error.message : '恢复页面失败'
   } finally {
@@ -229,7 +250,7 @@ async function startElementPicker() {
 
         <CleanModePanel v-if="mode === 'clean'" v-model:instruction="instruction" v-model:generated-css="generatedCss"
           :is-busy="isBusy" :can-apply="canApply" @analyze="collectDomSummary" @apply="applyCss" />
-        <SelectModePanel v-else :is-busy="isBusy" @start-picker="prepareElementPicker" />
+        <SelectModePanel v-else :is-busy="isBusy" :has-saved-rule="hasSavedRule" @start-picker="prepareElementPicker" />
       </template>
 
       <StatusBar :status="status" :is-busy="isBusy" @reset="resetPage" />

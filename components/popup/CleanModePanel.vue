@@ -66,10 +66,10 @@ function onKeydown(event: KeyboardEvent) {
     <button type="button" class="flex items-center gap-1 text-left text-xs text-muted transition hover:text-ink-soft"
       @click="showCss = !showCss">
       <ChevronRightIcon class="h-3.5 w-3.5 transition-transform" :class="showCss ? 'rotate-90' : ''" />
-      <span>查看生成的 CSS</span>
+      <span>{{ generatedCss ? "查看 / 编辑生成的 CSS" : "尚无生成结果" }}</span>
     </button>
 
-    <textarea v-if="showCss" :value="generatedCss" rows="7"
+    <textarea v-if="showCss" :value="generatedCss" rows="7" placeholder="/* 点击发送后将在此显示生成的 CSS */"
       class="w-full resize-y rounded-lg border border-line bg-code p-3 font-mono text-xs leading-relaxed text-code-text outline-none transition focus:border-brand"
       @input="$emit('update:generatedCss', ($event.target as HTMLTextAreaElement).value)" />
   </div>

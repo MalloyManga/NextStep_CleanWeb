@@ -68,10 +68,18 @@ function updateField(settings: LlmSettings, field: keyof LlmSettings, value: str
 
       <label class="grid gap-1.5">
         <span class="text-xs font-semibold text-ink-soft">Model</span>
-        <input :value="settings.model" type="text" spellcheck="false" placeholder="gpt-4o-mini"
+        <input :value="settings.model" type="text" list="cleanweb-models" spellcheck="false" placeholder="gpt-4o-mini"
           class="h-9 w-full rounded-lg border border-line bg-white px-3 text-sm text-ink outline-none transition focus:border-brand focus:ring-2 focus:ring-brand-soft"
           @input="$emit('update:settings', updateField(settings, 'model', ($event.target as HTMLInputElement).value))" />
       </label>
+      <datalist id="cleanweb-models">
+        <option value="gpt-4o-mini"></option>
+        <option value="gpt-4o"></option>
+        <option value="gpt-4.1-mini"></option>
+        <option value="gpt-3.5-turbo"></option>
+        <option value="deepseek-chat"></option>
+        <option value="claude-3-5-sonnet-20241022"></option>
+      </datalist>
     </div>
 
     <button type="button" :disabled="isBusy"
