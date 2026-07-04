@@ -132,3 +132,17 @@ AI 模块完成时需要满足：
 css 能被 Content Script 直接注入
 npm.cmd run build 通过
 ```
+
+## Environment
+
+当前实现支持 OpenAI-compatible Chat Completions API。没有配置 API Key 时，会自动返回 fallback CSS，保证演示不中断。
+
+本地可配置：
+
+```text
+WXT_LLM_API_KEY=your_api_key
+WXT_LLM_BASE_URL=https://api.openai.com/v1
+WXT_LLM_MODEL=gpt-4o-mini
+```
+
+如果使用兼容 OpenAI 的服务，把 `WXT_LLM_BASE_URL` 换成对应服务的 `/v1` 地址即可。

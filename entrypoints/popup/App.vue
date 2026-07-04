@@ -15,11 +15,12 @@ import type {
   ResetRuleMessage,
   StartElementPickerMessage,
 } from '../../types/cleanweb';
+import { FALLBACK_CSS, generateCssRule } from '../../utils/llm';
 
 const MODE_STORAGE_KEY = 'local:cleanweb:popup-mode';
 
 const instruction = ref('隐藏侧栏和广告，把正文区域居中放大');
-const generatedCss = ref('');
+const generatedCss = ref(FALLBACK_CSS);
 const status = ref('准备净化当前页面');
 const currentSite = ref('当前页面');
 const isBusy = ref(false);
@@ -85,12 +86,14 @@ async function collectDomSummary() {
     });
 
     summaryCount.value = response.summaryCount ?? 0;
-    status.value = `已读取 ${summaryCount.value} 个元素`;
+    status.value = `已读取 ${summaryCount.value} 个元素，正在生成规则`;
 
-    // 模拟生成 CSS（LLM 未接入前用占位）
-    if (!generatedCss.value.trim()) {
-      generatedCss.value = '/* 生成的规则将显示在这里 */';
-    }
+    const result = await generateCssRule({
+      instruction: instruction.value,
+      domSummary: response.summary ?? [],
+    });
+    generatedCss.value = result.css || FALLBACK_CSS;
+    status.value = result.explanation;
   } catch (error) {
     status.value = error instanceof Error ? error.message : '读取页面结构失败';
   } finally {

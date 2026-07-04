@@ -13,6 +13,10 @@ const PICKER_LAYER_ID = 'cleanweb-picker-layer';
 const PICKER_OUTLINE_ID = 'cleanweb-picker-outline';
 const PICKER_TOOLBAR_ID = 'cleanweb-picker-toolbar';
 const PICKER_PANEL_ID = 'cleanweb-picker-ai-panel';
+const GUARD_STYLE_ID = 'cleanweb-anti-flicker-style';
+const GUARD_CLASS = 'cleanweb-anti-flicker';
+const RULE_MARKER_PREFIX = 'cleanweb:has-rule:';
+const GUARD_FAILSAFE_MS = 1500;
 const MIN_HIDE_TARGET_AREA = 900;
 const MAX_HIDE_TARGET_AREA_RATIO = 0.72;
 
@@ -22,7 +26,9 @@ export default defineContentScript({
   matches: ['<all_urls>'],
   runAt: 'document_start',
   async main() {
-    await applySavedRule();
+    const hostname = getHostname();
+    const guard = hasRuleMarker(hostname) ? installAntiFlickerGuard() : null;
+    await applySavedRule(hostname, guard);
 
     browser.runtime.onMessage.addListener((message: CleanWebMessage): Promise<CleanWebResponse> => {
       if (message.type === 'CLEANWEB_COLLECT_DOM_SUMMARY') {
@@ -40,7 +46,10 @@ export default defineContentScript({
 
       if (message.type === 'CLEANWEB_RESET_RULE') {
         removeInjectedStyle();
-        return removeRule(getHostname()).then(() => ({ ok: true }));
+        return removeRule(getHostname()).then(() => {
+          clearRuleMarker(getHostname());
+          return { ok: true };
+        });
       }
 
       if (message.type === 'CLEANWEB_START_ELEMENT_PICKER') {
@@ -48,16 +57,22 @@ export default defineContentScript({
         return Promise.resolve({ ok: true });
       }
 
-      return Promise.resolve({ ok: false, error: '鏈煡娑堟伅绫诲瀷' });
+      return Promise.resolve({ ok: false, error: '未知消息类型' });
     });
   },
 });
 
-async function applySavedRule() {
-  const rule = await getRule(getHostname());
+async function applySavedRule(hostname: string, guard: AntiFlickerGuard | null) {
+  const rule = await getRule(hostname);
   if (rule?.css) {
     injectCss(rule.css);
+    markRuleSaved(hostname);
+    guard?.release();
+    return;
   }
+
+  clearRuleMarker(hostname);
+  guard?.release();
 }
 
 async function handleApplyRule(message: ApplyRuleMessage): Promise<CleanWebResponse> {
@@ -69,6 +84,7 @@ async function handleApplyRule(message: ApplyRuleMessage): Promise<CleanWebRespo
       instruction: message.instruction,
       updatedAt: Date.now(),
     });
+    markRuleSaved(getHostname());
   }
 
   return { ok: true };
@@ -91,6 +107,76 @@ function injectCss(css: string) {
 
 function removeInjectedStyle() {
   document.getElementById(STYLE_ID)?.remove();
+}
+
+interface AntiFlickerGuard {
+  release: () => void;
+}
+
+function installAntiFlickerGuard(): AntiFlickerGuard {
+  document.documentElement.classList.add(GUARD_CLASS);
+
+  const style = document.createElement('style');
+  style.id = GUARD_STYLE_ID;
+  style.dataset.cleanweb = 'anti-flicker';
+  style.textContent = `
+    html.${GUARD_CLASS} body {
+      opacity: 0 !important;
+    }
+  `;
+  document.documentElement.appendChild(style);
+
+  let released = false;
+  const failsafeId = window.setTimeout(release, GUARD_FAILSAFE_MS);
+
+  function release() {
+    if (released) return;
+
+    released = true;
+    window.clearTimeout(failsafeId);
+    window.requestAnimationFrame(() => {
+      document.documentElement.classList.remove(GUARD_CLASS);
+      document.getElementById(GUARD_STYLE_ID)?.remove();
+    });
+  }
+
+  return { release };
+}
+
+function hasRuleMarker(hostname: string) {
+  return readLocalStorage(`${RULE_MARKER_PREFIX}${hostname}`) === 'true';
+}
+
+function markRuleSaved(hostname: string) {
+  writeLocalStorage(`${RULE_MARKER_PREFIX}${hostname}`, 'true');
+}
+
+function clearRuleMarker(hostname: string) {
+  removeLocalStorage(`${RULE_MARKER_PREFIX}${hostname}`);
+}
+
+function readLocalStorage(key: string) {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeLocalStorage(key: string, value: string) {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // Some pages disable localStorage; saved rules still work without the guard.
+  }
+}
+
+function removeLocalStorage(key: string) {
+  try {
+    window.localStorage.removeItem(key);
+  } catch {
+    // Some pages disable localStorage; there is no marker to clean up.
+  }
 }
 
 interface PickerState {
@@ -333,6 +419,7 @@ async function handleHideSelectedElement(event: MouseEvent) {
     instruction: appendInstruction(existingRule?.instruction, `隐藏 ${selector}`),
     updatedAt: Date.now(),
   });
+  markRuleSaved(hostname);
 
   stopElementPicker();
 }
@@ -599,7 +686,7 @@ function appendInstruction(currentInstruction: string | undefined, nextInstructi
     return nextInstruction;
   }
 
-  return `${currentInstruction.trim()}锛?{nextInstruction}`;
+  return `${currentInstruction.trim()}；${nextInstruction}`;
 }
 
 export { buildReadableSelector, collectDomSummary };
