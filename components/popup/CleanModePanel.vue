@@ -22,6 +22,7 @@ const emit = defineEmits<{
   toggleRuleDraft: [id: string, enabled: boolean]
   commitGeneratedCss: []
   analyze: []
+  cancel: []
   'go-settings': []
 }>()
 
@@ -29,7 +30,7 @@ const showCss = ref(false)
 const showDebug = ref(false)
 
 const hasText = computed(() => props.instruction.trim().length > 0)
-const showStop = computed(() => props.isBusy && !hasText.value)
+const showStop = computed(() => props.isBusy)
 const canSend = computed(() => hasText.value && !props.isBusy)
 const hasGeneratedCss = computed(() => props.generatedCss.trim().length > 0)
 const sendLabel = computed(() => (hasGeneratedCss.value ? '重新生成' : '发送'))
@@ -49,6 +50,17 @@ function onKeydown(event: KeyboardEvent) {
     if (canSend.value) {
       emit('analyze')
     }
+  }
+}
+
+function onSendButtonClick() {
+  if (showStop.value) {
+    emit('cancel')
+    return
+  }
+
+  if (canSend.value) {
+    emit('analyze')
   }
 }
 </script>
@@ -72,11 +84,11 @@ function onKeydown(event: KeyboardEvent) {
         <textarea :value="instruction" rows="3"
           class="w-full resize-y rounded-lg border border-line bg-white px-3 py-2 pb-9 text-sm leading-relaxed text-ink outline-none transition focus:border-brand focus:ring-2 focus:ring-brand-soft"
           placeholder="例如：隐藏右侧推荐栏，把正文居中放大" @input="onInstructionInput" @keydown="onKeydown" />
-        <button type="button" :disabled="!canSend"
+        <button type="button" :disabled="!canSend && !showStop"
           class="absolute bottom-2 right-2 flex h-7 w-7 items-center justify-center rounded-full transition"
           :class="canSend || showStop ? 'bg-brand text-white hover:bg-brand-dark' : 'cursor-not-allowed bg-brand-tint text-muted'"
-          :title="showStop ? '生成中' : (canSend ? sendLabel : '输入指令后发送')" :aria-label="showStop ? '生成中' : sendLabel"
-          @click="canSend ? emit('analyze') : undefined">
+          :title="showStop ? '停止生成' : (canSend ? sendLabel : '输入指令后发送')" :aria-label="showStop ? '停止生成' : sendLabel"
+          @click="onSendButtonClick">
           <StopIcon v-if="showStop" class="h-3 w-3" />
           <SendIcon v-else class="h-4 w-4" />
         </button>

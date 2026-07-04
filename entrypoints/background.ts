@@ -27,6 +27,10 @@ export default defineBackground(() => {
       }));
     }
 
+    if (message.type === 'CLEANWEB_CANCEL_GENERATION') {
+      return cancelGenerationTask(message.hostname);
+    }
+
     return Promise.resolve({ ok: false, error: 'Unknown background message type' });
   });
 });
@@ -57,6 +61,10 @@ async function runGenerationTask(message: StartGenerationMessage): Promise<Clean
     const summary = response.summary ?? [];
     const summaryCount = response.summaryCount ?? summary.length;
 
+    if (await isGenerationCanceled(message.hostname)) {
+      return getCanceledGenerationResponse(message.hostname, runningState);
+    }
+
     await saveGenerationState(message.hostname, {
       ...runningState,
       summaryCount,
@@ -68,6 +76,13 @@ async function runGenerationTask(message: StartGenerationMessage): Promise<Clean
       domSummary: summary,
       settings: message.settings,
     });
+
+    if (await isGenerationCanceled(message.hostname)) {
+      return getCanceledGenerationResponse(message.hostname, {
+        ...runningState,
+        summaryCount,
+      });
+    }
 
     const draft = createGeneratedRuleDraft({
       css: formatCssForPreview(result.css || FALLBACK_CSS),
@@ -135,6 +150,54 @@ async function runGenerationTask(message: StartGenerationMessage): Promise<Clean
       generationState: errorState,
     };
   }
+}
+
+async function cancelGenerationTask(hostname: string): Promise<CleanWebResponse> {
+  const currentState = await getGenerationState(hostname);
+  const now = Date.now();
+  const canceledState: GenerationState = {
+    hostname,
+    status: 'canceled',
+    instruction: currentState?.instruction ?? '',
+    summaryCount: currentState?.summaryCount ?? 0,
+    startedAt: currentState?.startedAt ?? now,
+    updatedAt: now,
+    debug: currentState?.debug,
+  };
+
+  await saveGenerationState(hostname, canceledState);
+  console.info('[CleanWeb][Background] generation canceled', { hostname });
+
+  return {
+    ok: true,
+    generationState: canceledState,
+  };
+}
+
+async function isGenerationCanceled(hostname: string) {
+  const state = await getGenerationState(hostname);
+  return state?.status === 'canceled';
+}
+
+async function getCanceledGenerationResponse(
+  hostname: string,
+  previousState: Pick<GenerationState, 'instruction' | 'summaryCount' | 'startedAt'>,
+): Promise<CleanWebResponse> {
+  const state: GenerationState = {
+    hostname,
+    status: 'canceled',
+    instruction: previousState.instruction,
+    summaryCount: previousState.summaryCount,
+    startedAt: previousState.startedAt,
+    updatedAt: Date.now(),
+  };
+
+  await saveGenerationState(hostname, state);
+
+  return {
+    ok: true,
+    generationState: state,
+  };
 }
 
 function createGeneratedRuleDraft(input: Omit<GeneratedRuleDraft, 'id' | 'enabled' | 'createdAt'>): GeneratedRuleDraft {

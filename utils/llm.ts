@@ -129,6 +129,7 @@ Generate CSS and respond with JSON only.`,
   ];
 
   let raw = '';
+  let responseSnapshot = '';
   let retriedWithoutResponseFormat = false;
 
   try {
@@ -139,6 +140,7 @@ Generate CSS and respond with JSON only.`,
       max_tokens: 1500,
     });
 
+    responseSnapshot = stringifyResponseSnapshot(response);
     raw = response.choices[0]?.message?.content?.trim() ?? '';
   } catch (error) {
     retriedWithoutResponseFormat = true;
@@ -154,6 +156,7 @@ Generate CSS and respond with JSON only.`,
         max_tokens: 1500,
       });
 
+      responseSnapshot = stringifyResponseSnapshot(response);
       raw = response.choices[0]?.message?.content?.trim() ?? '';
     } catch (retryError) {
       return createFallbackResult('Rule generation request failed. Applied the built-in fallback rule.', {
@@ -174,6 +177,7 @@ Generate CSS and respond with JSON only.`,
       ...debugBase,
       responseFinishedAt: Date.now(),
       rawResponse: raw,
+      responseSnapshot,
       parseError: 'Empty response',
       usedFallback: true,
       retriedWithoutResponseFormat,
@@ -187,6 +191,7 @@ Generate CSS and respond with JSON only.`,
         ...debugBase,
         responseFinishedAt: Date.now(),
         rawResponse: raw,
+        responseSnapshot,
         parseError: 'Missing css string field',
         usedFallback: true,
         retriedWithoutResponseFormat,
@@ -202,6 +207,7 @@ Generate CSS and respond with JSON only.`,
         ...debugBase,
         responseFinishedAt: Date.now(),
         rawResponse: raw,
+        responseSnapshot,
         cssLength: parsed.css.trim().length,
         explanation,
         usedFallback: false,
@@ -225,6 +231,7 @@ Generate CSS and respond with JSON only.`,
       ...debugBase,
       responseFinishedAt: Date.now(),
       rawResponse: raw,
+      responseSnapshot,
       parseError: getErrorMessage(error),
       usedFallback: true,
       retriedWithoutResponseFormat,
@@ -276,6 +283,17 @@ function extractJsonObject(raw: string) {
 
 function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
+}
+
+function stringifyResponseSnapshot(response: unknown) {
+  const text = JSON.stringify(response, null, 2);
+  const maxLength = 12000;
+
+  if (text.length <= maxLength) {
+    return text;
+  }
+
+  return `${text.slice(0, maxLength)}\n...<truncated>`;
 }
 
 export function isFallbackResult(result: GenerateCssResult): boolean {

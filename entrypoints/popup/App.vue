@@ -12,6 +12,7 @@ import type { WorkMode } from '../../components/popup/types'
 import type {
   ApplyRuleMessage,
   AiDebugLog,
+  CancelGenerationMessage,
   CleanWebResponse,
   GeneratedRuleDraft,
   GenerationState,
@@ -215,6 +216,30 @@ async function collectDomSummary() {
   }
 }
 
+async function cancelGeneration() {
+  if (!currentHostname.value) return
+
+  status.value = '正在停止生成'
+
+  try {
+    const response = await sendToBackground<CancelGenerationMessage, CleanWebResponse>({
+      type: 'CLEANWEB_CANCEL_GENERATION',
+      hostname: currentHostname.value,
+    })
+
+    if (response.generationState) {
+      await syncGenerationState(response.generationState)
+      return
+    }
+
+    isBusy.value = false
+    status.value = response.ok ? '已停止生成' : response.error ?? '停止生成失败'
+  } catch (error) {
+    isBusy.value = false
+    status.value = error instanceof Error ? error.message : '停止生成失败'
+  }
+}
+
 async function resetPage() {
   isBusy.value = true
   status.value = '正在恢复页面'
@@ -312,6 +337,11 @@ async function syncGenerationState(generationState: GenerationState) {
   if (generationState.status === 'error') {
     latestAiDebugLog.value = generationState.debug ?? latestAiDebugLog.value
     status.value = generationState.error ?? '生成规则失败'
+    return
+  }
+
+  if (generationState.status === 'canceled') {
+    status.value = '已停止生成'
   }
 }
 
@@ -411,6 +441,7 @@ function formatAiDebugLog(debug: AiDebugLog) {
     responseFinishedAt: debug.responseFinishedAt ? new Date(debug.responseFinishedAt).toISOString() : undefined,
     requestError: debug.requestError,
     parseError: debug.parseError,
+    responseSnapshot: debug.responseSnapshot,
     rawResponse: debug.rawResponse,
   }, null, 2)
 }
@@ -455,7 +486,8 @@ async function startElementPicker() {
           :ai-debug-text="selectedAiDebugText" :rule-drafts="generatedRuleDrafts" :selected-draft-id="selectedDraftId" :is-busy="isBusy"
           :has-api-key="hasApiKey" @update:instruction="instruction = $event" @update:generated-css="updateGeneratedCss"
           @select-rule-draft="selectRuleDraft" @toggle-rule-draft="toggleRuleDraft"
-          @commit-generated-css="commitGeneratedCss" @analyze="collectDomSummary" @go-settings="mode = 'settings'" />
+          @commit-generated-css="commitGeneratedCss" @analyze="collectDomSummary" @cancel="cancelGeneration"
+          @go-settings="mode = 'settings'" />
         <SelectModePanel v-else :is-busy="isBusy" :has-saved-rule="hasSavedRule" @start-picker="prepareElementPicker" />
       </template>
 

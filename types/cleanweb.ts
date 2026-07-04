@@ -74,6 +74,7 @@ export interface AiDebugLog {
   requestStartedAt: number;
   responseFinishedAt?: number;
   rawResponse?: string;
+  responseSnapshot?: string;
   parseError?: string;
   requestError?: string;
   cssLength?: number;
@@ -99,7 +100,7 @@ export interface LlmSettings {
   model: string;
 }
 
-export type GenerationStatus = 'idle' | 'running' | 'success' | 'error';
+export type GenerationStatus = 'idle' | 'running' | 'success' | 'error' | 'canceled';
 
 export interface GenerationState {
   hostname: string;
@@ -147,6 +148,11 @@ export interface GetGenerationStateMessage {
   hostname: string;
 }
 
+export interface CancelGenerationMessage {
+  type: 'CLEANWEB_CANCEL_GENERATION';
+  hostname: string;
+}
+
 export type CleanWebMessage =
   | DomSummaryMessage
   | ApplyRuleMessage
@@ -155,7 +161,8 @@ export type CleanWebMessage =
 
 export type CleanWebBackgroundMessage =
   | StartGenerationMessage
-  | GetGenerationStateMessage;
+  | GetGenerationStateMessage
+  | CancelGenerationMessage;
 
 export interface CleanWebResponse {
   ok: boolean;
