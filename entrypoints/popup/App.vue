@@ -1,6 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { browser } from 'wxt/browser';
+import CleanModePanel from '../../components/popup/CleanModePanel.vue';
+import ModeTabs from '../../components/popup/ModeTabs.vue';
+import PopupHeader from '../../components/popup/PopupHeader.vue';
+import SelectModePanel from '../../components/popup/SelectModePanel.vue';
+import StatusBar from '../../components/popup/StatusBar.vue';
+import type { WorkMode } from '../../components/popup/types';
 import type {
   ApplyRuleMessage,
   CleanWebResponse,
@@ -8,8 +14,6 @@ import type {
   ResetRuleMessage,
   StartElementPickerMessage,
 } from '../../types/cleanweb';
-
-type WorkMode = 'clean' | 'select';
 
 const instruction = ref('隐藏侧边栏和广告，把正文区域居中放大');
 const generatedCss = ref(`aside,
@@ -147,128 +151,23 @@ async function startElementPicker() {
 
 <template>
   <main class="min-h-140 bg-paper text-ink">
-    <section class="border-b border-line/80 bg-surface px-5 pb-4 pt-5">
-      <header class="flex items-start justify-between gap-4">
-        <div class="min-w-0">
-          <p class="mb-1 text-[11px] font-black uppercase tracking-[0.18em] text-brand">CleanWeb</p>
-          <h1 class="m-0 text-2xl font-black leading-tight">网页净化器</h1>
-        </div>
-        <div class="flex h-10 w-10 items-center justify-center rounded-xl border border-brand/20 bg-brand-soft text-lg font-black text-brand">
-          C
-        </div>
-      </header>
-
-      <div class="mt-4 grid grid-cols-[1fr_auto] items-center gap-3 rounded-xl border border-line bg-paper px-3 py-2.5">
-        <div class="min-w-0">
-          <p class="m-0 text-[11px] font-bold uppercase tracking-[0.14em] text-muted">Current Site</p>
-          <p class="m-0 truncate text-sm font-bold">{{ currentSite }}</p>
-        </div>
-        <span class="rounded-full border border-line bg-surface px-2.5 py-1 text-xs font-bold text-muted">
-          {{ summaryLabel }}
-        </span>
-      </div>
-    </section>
+    <PopupHeader :current-site="currentSite" :summary-label="summaryLabel" />
 
     <section class="grid gap-4 p-5">
-      <div class="grid grid-cols-2 rounded-xl border border-line bg-surface p-1">
-        <button
-          type="button"
-          class="rounded-lg px-3 py-2 text-sm font-black transition"
-          :class="mode === 'clean' ? 'bg-brand text-white shadow-sm' : 'text-muted hover:text-ink'"
-          @click="mode = 'clean'"
-        >
-          整页净化
-        </button>
-        <button
-          type="button"
-          class="rounded-lg px-3 py-2 text-sm font-black transition"
-          :class="mode === 'select' ? 'bg-brand text-white shadow-sm' : 'text-muted hover:text-ink'"
-          @click="mode = 'select'"
-        >
-          精准选择
-        </button>
-      </div>
+      <ModeTabs v-model="mode" />
 
-      <div v-if="mode === 'clean'" class="grid gap-4">
-        <label class="grid gap-2">
-          <span class="text-sm font-black">自然语言指令</span>
-          <textarea
-            v-model="instruction"
-            rows="3"
-            class="w-full resize-y rounded-xl border border-line bg-surface p-3 text-sm leading-6 text-ink outline-none transition focus:border-brand focus:shadow-[0_0_0_3px_var(--color-brand-soft)]"
-          />
-        </label>
+      <CleanModePanel
+        v-if="mode === 'clean'"
+        v-model:instruction="instruction"
+        v-model:generated-css="generatedCss"
+        :is-busy="isBusy"
+        :can-apply="canApply"
+        @analyze="collectDomSummary"
+        @apply="applyCss"
+      />
+      <SelectModePanel v-else :is-busy="isBusy" @start-picker="prepareElementPicker" />
 
-        <label class="grid gap-2">
-          <span class="flex items-center justify-between gap-3 text-sm font-black">
-            <span>规则预览</span>
-            <span class="text-xs font-bold text-muted">测试 CSS</span>
-          </span>
-          <textarea
-            v-model="generatedCss"
-            rows="9"
-            class="w-full resize-y rounded-xl border border-line bg-[#101817] p-3 font-mono text-xs leading-5 text-[#dff7ec] outline-none transition focus:border-brand focus:shadow-[0_0_0_3px_var(--color-brand-soft)]"
-          />
-        </label>
-
-        <div class="grid grid-cols-[1fr_1.25fr] gap-2">
-          <button
-            type="button"
-            :disabled="isBusy"
-            class="min-h-11 rounded-xl border border-line bg-surface px-3 text-sm font-black text-ink transition hover:border-brand/50 disabled:cursor-not-allowed disabled:opacity-60"
-            @click="collectDomSummary"
-          >
-            读取页面
-          </button>
-          <button
-            type="button"
-            :disabled="isBusy || !canApply"
-            class="min-h-11 rounded-xl border border-brand bg-brand px-3 text-sm font-black text-white shadow-sm transition hover:bg-[#255c52] disabled:cursor-not-allowed disabled:opacity-60"
-            @click="applyCss"
-          >
-            应用并保存
-          </button>
-        </div>
-      </div>
-
-      <div v-else class="grid gap-4">
-        <div class="rounded-xl border border-line bg-surface p-4">
-          <div class="flex items-center justify-between gap-3">
-            <div>
-              <p class="m-0 text-sm font-black">目标元素</p>
-              <p class="m-0 mt-1 text-xs font-bold text-muted">尚未选择</p>
-            </div>
-            <span class="rounded-full bg-paper px-2.5 py-1 text-xs font-black text-brand">Inspect</span>
-          </div>
-        </div>
-
-        <button
-          type="button"
-          :disabled="isBusy"
-          class="min-h-12 rounded-xl border border-brand bg-brand px-3 text-sm font-black text-white shadow-sm transition hover:bg-[#255c52]"
-          @click="prepareElementPicker"
-        >
-          选择网页元素
-        </button>
-
-        <div class="rounded-xl border border-line bg-surface p-4">
-          <p class="m-0 text-xs font-bold leading-5 text-muted">
-            开启后在网页中悬停目标区域，点击选中。操作按钮会出现在鼠标附近。
-          </p>
-        </div>
-      </div>
-
-      <div class="grid grid-cols-[1fr_auto] items-center gap-3 rounded-xl border border-line bg-surface px-3 py-2.5">
-        <p class="m-0 min-w-0 truncate text-xs font-bold text-muted">{{ status }}</p>
-        <button
-          type="button"
-          :disabled="isBusy"
-          class="rounded-lg px-3 py-1.5 text-xs font-black text-danger transition hover:bg-paper disabled:cursor-not-allowed disabled:opacity-60"
-          @click="resetPage"
-        >
-          恢复
-        </button>
-      </div>
+      <StatusBar :status="status" :is-busy="isBusy" @reset="resetPage" />
     </section>
   </main>
 </template>
