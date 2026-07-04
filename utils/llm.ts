@@ -1,4 +1,5 @@
-import type { DomSummaryItem } from '../types/cleanweb';
+import type { DomSummaryItem, LlmSettings } from '../types/cleanweb';
+import { getLlmSettings } from './storage';
 
 export const FALLBACK_CSS = `aside,
 [class*="sidebar"],
@@ -41,40 +42,81 @@ interface ChatCompletionResponse {
   choices?: ChatChoice[];
 }
 
-export async function generateCssRule(input: GenerateCssInput): Promise<GenerateCssResult> {
-  const apiKey = import.meta.env.WXT_LLM_API_KEY;
+interface ChatCompletionRequest {
+  model: string;
+  messages: ChatMessage[];
+  temperature: number;
+  response_format?: {
+    type: 'json_object';
+  };
+}
 
-  if (!apiKey) {
-    return createFallbackResult('未配置 LLM API Key，已使用本地 fallback 规则。');
+export async function generateCssRule(input: GenerateCssInput): Promise<GenerateCssResult> {
+  const settings = await resolveLlmSettings();
+
+  if (!settings.apiKey.trim()) {
+    return createFallbackResult('未配置 API Key，已使用本地 fallback 规则。');
   }
 
-  const baseUrl = trimTrailingSlash(import.meta.env.WXT_LLM_BASE_URL || 'https://api.openai.com/v1');
-  const model = import.meta.env.WXT_LLM_MODEL || 'gpt-4o-mini';
-  const response = await fetch(`${baseUrl}/chat/completions`, {
+  const messages = createPromptMessages(input);
+  const payload = await requestChatCompletion(settings, messages);
+  const content = payload.choices?.[0]?.message?.content;
+
+  if (!content) {
+    return createFallbackResult('模型返回为空，已使用 fallback 规则。');
+  }
+
+  return parseGenerateCssResult(content);
+}
+
+async function resolveLlmSettings(): Promise<LlmSettings> {
+  const saved = await getLlmSettings();
+
+  return {
+    apiKey: saved?.apiKey || import.meta.env.WXT_LLM_API_KEY || '',
+    baseUrl: saved?.baseUrl || import.meta.env.WXT_LLM_BASE_URL || 'https://api.openai.com/v1',
+    model: saved?.model || import.meta.env.WXT_LLM_MODEL || 'gpt-4o-mini',
+  };
+}
+
+async function requestChatCompletion(
+  settings: LlmSettings,
+  messages: ChatMessage[],
+): Promise<ChatCompletionResponse> {
+  const endpoint = normalizeChatCompletionEndpoint(settings.baseUrl);
+  const baseBody: ChatCompletionRequest = {
+    model: settings.model.trim() || 'gpt-4o-mini',
+    messages,
+    temperature: 0.2,
+    response_format: { type: 'json_object' },
+  };
+
+  const response = await postChatCompletion(endpoint, settings.apiKey, baseBody);
+  if (response.ok) {
+    return (await response.json()) as ChatCompletionResponse;
+  }
+
+  if (response.status === 400) {
+    const retryBody: ChatCompletionRequest = { ...baseBody };
+    delete retryBody.response_format;
+    const retryResponse = await postChatCompletion(endpoint, settings.apiKey, retryBody);
+    if (retryResponse.ok) {
+      return (await retryResponse.json()) as ChatCompletionResponse;
+    }
+  }
+
+  return createFallbackPayload(`模型请求失败：${response.status}`);
+}
+
+function postChatCompletion(endpoint: string, apiKey: string, body: ChatCompletionRequest) {
+  return fetch(endpoint, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      model,
-      messages: createPromptMessages(input),
-      temperature: 0.2,
-      response_format: { type: 'json_object' },
-    }),
+    body: JSON.stringify(body),
   });
-
-  if (!response.ok) {
-    return createFallbackResult(`LLM 请求失败：${response.status}`);
-  }
-
-  const payload = (await response.json()) as ChatCompletionResponse;
-  const content = payload.choices?.[0]?.message?.content;
-  if (!content) {
-    return createFallbackResult('LLM 返回为空，已使用 fallback 规则。');
-  }
-
-  return parseGenerateCssResult(content);
 }
 
 function createPromptMessages(input: GenerateCssInput): ChatMessage[] {
@@ -107,7 +149,7 @@ function parseGenerateCssResult(content: string): GenerateCssResult {
   const explanation = typeof parsed.explanation === 'string' ? parsed.explanation.trim() : '';
 
   if (!css) {
-    return createFallbackResult('LLM 未返回可用 CSS，已使用 fallback 规则。');
+    return createFallbackResult('模型未返回可用 CSS，已使用 fallback 规则。');
   }
 
   return {
@@ -133,11 +175,32 @@ function parseJsonObject(content: string): Record<string, unknown> {
   }
 }
 
+function createFallbackPayload(explanation: string): ChatCompletionResponse {
+  return {
+    choices: [
+      {
+        message: {
+          content: JSON.stringify(createFallbackResult(explanation)),
+        },
+      },
+    ],
+  };
+}
+
 function createFallbackResult(explanation: string): GenerateCssResult {
   return {
     css: FALLBACK_CSS,
     explanation,
   };
+}
+
+function normalizeChatCompletionEndpoint(baseUrl: string) {
+  const trimmed = trimTrailingSlash(baseUrl.trim() || 'https://api.openai.com/v1');
+  if (/\/chat\/completions$/i.test(trimmed)) {
+    return trimmed;
+  }
+
+  return `${trimmed}/chat/completions`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

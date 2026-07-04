@@ -64,3 +64,15 @@ button {
 button:disabled {
   cursor: not-allowed;
 }
+
+.cleanweb-mode-thumb-clean {
+  transform: translateX(0);
+}
+
+.cleanweb-mode-thumb-select {
+  transform: translateX(100%);
+}
+
+.cleanweb-mode-thumb-settings {
+  transform: translateX(200%);
+}

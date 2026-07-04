@@ -6,16 +6,19 @@ import CleanModePanel from '../../components/popup/CleanModePanel.vue';
 import ModeTabs from '../../components/popup/ModeTabs.vue';
 import PopupHeader from '../../components/popup/PopupHeader.vue';
 import SelectModePanel from '../../components/popup/SelectModePanel.vue';
+import SettingsPanel from '../../components/popup/SettingsPanel.vue';
 import StatusBar from '../../components/popup/StatusBar.vue';
 import type { WorkMode } from '../../components/popup/types';
 import type {
   ApplyRuleMessage,
   CleanWebResponse,
   DomSummaryMessage,
+  LlmSettings,
   ResetRuleMessage,
   StartElementPickerMessage,
 } from '../../types/cleanweb';
 import { FALLBACK_CSS, generateCssRule } from '../../utils/llm';
+import { getLlmSettings, saveLlmSettings } from '../../utils/storage';
 
 const MODE_STORAGE_KEY = 'local:cleanweb:popup-mode';
 
@@ -26,6 +29,11 @@ const currentSite = ref('当前页面');
 const isBusy = ref(false);
 const summaryCount = ref(0);
 const mode = ref<WorkMode>('clean');
+const llmSettings = ref<LlmSettings>({
+  apiKey: '',
+  baseUrl: 'https://api.openai.com/v1',
+  model: 'gpt-4o-mini',
+});
 
 const canApply = computed(() => generatedCss.value.trim().length > 0);
 const summaryLabel = computed(() => (summaryCount.value > 0 ? `${summaryCount.value} 元素` : ''));
@@ -33,6 +41,7 @@ const summaryLabel = computed(() => (summaryCount.value > 0 ? `${summaryCount.va
 onMounted(async () => {
   currentSite.value = await getCurrentSiteLabel();
   mode.value = await getSavedMode();
+  llmSettings.value = await getSavedLlmSettings();
 });
 
 watch(mode, (nextMode) => {
@@ -56,10 +65,19 @@ function getHostnameLabel(url: string | undefined) {
   if (!url) return '当前页面';
 
   try {
-    return new URL(url).hostname;
+    return getOriginLabel(url);
   } catch {
-    return '当前页面';
+    return url.replace(/^(https?:\/\/[^/]+).*/i, '$1');
   }
+}
+
+function getOriginLabel(url: string) {
+  const parsedUrl = new URL(url);
+  if (parsedUrl.protocol === 'http:' || parsedUrl.protocol === 'https:') {
+    return parsedUrl.origin;
+  }
+
+  return parsedUrl.hostname || '当前页面';
 }
 
 async function getSavedMode() {
@@ -68,7 +86,35 @@ async function getSavedMode() {
 }
 
 function isWorkMode(value: unknown): value is WorkMode {
-  return value === 'clean' || value === 'select';
+  return value === 'clean' || value === 'select' || value === 'settings';
+}
+
+async function getSavedLlmSettings(): Promise<LlmSettings> {
+  const saved = await getLlmSettings();
+
+  return {
+    apiKey: saved?.apiKey ?? '',
+    baseUrl: saved?.baseUrl || 'https://api.openai.com/v1',
+    model: saved?.model || 'gpt-4o-mini',
+  };
+}
+
+async function saveSettings() {
+  isBusy.value = true;
+  status.value = '正在保存 AI 设置';
+
+  try {
+    await saveLlmSettings({
+      apiKey: llmSettings.value.apiKey.trim(),
+      baseUrl: llmSettings.value.baseUrl.trim() || 'https://api.openai.com/v1',
+      model: llmSettings.value.model.trim() || 'gpt-4o-mini',
+    });
+    status.value = 'AI 设置已保存';
+  } catch (error) {
+    status.value = error instanceof Error ? error.message : '保存 AI 设置失败';
+  } finally {
+    isBusy.value = false;
+  }
 }
 
 async function sendToActiveTab<TMessage, TResponse = CleanWebResponse>(message: TMessage) {
@@ -175,6 +221,12 @@ async function startElementPicker() {
       :can-apply="canApply"
       @analyze="collectDomSummary"
       @apply="applyCss"
+    />
+    <SettingsPanel
+      v-else-if="mode === 'settings'"
+      v-model:settings="llmSettings"
+      :is-busy="isBusy"
+      @save="saveSettings"
     />
     <SelectModePanel v-else :is-busy="isBusy" @start-picker="prepareElementPicker" />
 

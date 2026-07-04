@@ -135,14 +135,22 @@ npm.cmd run build 通过
 
 ## Environment
 
-当前实现支持 OpenAI-compatible Chat Completions API。没有配置 API Key 时，会自动返回 fallback CSS，保证演示不中断。
+当前实现支持 OpenAI-compatible Chat Completions API。用户可以在插件 Popup 的“设置”页填写 API Key、Base URL 和 Model；没有配置 API Key 时，会自动返回 fallback CSS，保证演示不中断。
 
-本地可配置：
+设置页推荐填写：
+
+```text
+API Key: sk-...
+Base URL: https://api.openai.com/v1
+Model: gpt-4o-mini
+```
+
+如果使用兼容 OpenAI 的服务，把 Base URL 换成对应服务的 `/v1` 地址即可。也可以直接填写完整的 `/chat/completions` 地址。
+
+开发时仍可使用环境变量作为 fallback：
 
 ```text
 WXT_LLM_API_KEY=your_api_key
 WXT_LLM_BASE_URL=https://api.openai.com/v1
 WXT_LLM_MODEL=gpt-4o-mini
 ```
-
-如果使用兼容 OpenAI 的服务，把 `WXT_LLM_BASE_URL` 换成对应服务的 `/v1` 地址即可。

@@ -11,16 +11,19 @@ defineEmits<{
 </script>
 
 <template>
-  <div class="relative grid grid-cols-2 overflow-hidden rounded-lg bg-brand-tint p-0.5">
+  <div class="relative grid grid-cols-3 overflow-hidden rounded-lg bg-brand-tint p-0.5">
     <span
-      class="absolute bottom-0.5 left-0.5 top-0.5 rounded-md bg-brand shadow-sm transition-transform duration-200 ease-out"
-      style="width: calc((100% - 4px) / 2)"
-      :style="{ transform: modelValue === 'select' ? 'translateX(100%)' : 'translateX(0)' }"
+      class="col-start-1 row-start-1 rounded-md bg-brand shadow-sm transition-transform duration-200 ease-out"
+      :class="{
+        'cleanweb-mode-thumb-clean': modelValue === 'clean',
+        'cleanweb-mode-thumb-select': modelValue === 'select',
+        'cleanweb-mode-thumb-settings': modelValue === 'settings',
+      }"
       aria-hidden="true"
     />
     <button
       type="button"
-      class="relative z-10 rounded-md px-3 py-1.5 text-xs font-medium transition-colors duration-200"
+      class="relative z-10 col-start-1 row-start-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors duration-200"
       :class="modelValue === 'clean' ? 'text-white' : 'text-ink-soft hover:text-ink'"
       @click="$emit('update:modelValue', 'clean')"
     >
@@ -28,11 +31,19 @@ defineEmits<{
     </button>
     <button
       type="button"
-      class="relative z-10 rounded-md px-3 py-1.5 text-xs font-medium transition-colors duration-200"
+      class="relative z-10 col-start-2 row-start-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors duration-200"
       :class="modelValue === 'select' ? 'text-white' : 'text-ink-soft hover:text-ink'"
       @click="$emit('update:modelValue', 'select')"
     >
       精准选择
+    </button>
+    <button
+      type="button"
+      class="relative z-10 col-start-3 row-start-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors duration-200"
+      :class="modelValue === 'settings' ? 'text-white' : 'text-ink-soft hover:text-ink'"
+      @click="$emit('update:modelValue', 'settings')"
+    >
+      设置
     </button>
   </div>
 </template>

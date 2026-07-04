@@ -23,6 +23,12 @@ export interface CleanWebRule {
   updatedAt: number;
 }
 
+export interface LlmSettings {
+  apiKey: string;
+  baseUrl: string;
+  model: string;
+}
+
 export interface DomSummaryMessage {
   type: 'CLEANWEB_COLLECT_DOM_SUMMARY';
 }
