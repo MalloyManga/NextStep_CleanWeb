@@ -155,6 +155,7 @@ async function collectDomSummary() {
     const result = await generateCssRule({
       instruction: instruction.value,
       domSummary: response.summary ?? [],
+      settings: llmSettings.value,
     })
     generatedCss.value = result.css || FALLBACK_CSS
     hasGenerated.value = true

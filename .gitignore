@@ -1,7 +1,9 @@
 node_modules
 .wxt
 .output
+.env
+*.local
 dist
 *.zip
 .env
-.env.*
+!.env.*.example
