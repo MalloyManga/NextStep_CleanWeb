@@ -193,6 +193,8 @@ interface PickerState {
   toolbar: HTMLDivElement;
   panel: HTMLDivElement;
   selectorLabel: HTMLSpanElement;
+  statusBar: HTMLDivElement;
+  hiddenCount: number;
 }
 
 function startElementPicker() {
@@ -262,30 +264,32 @@ function startElementPicker() {
   const selectorLabel = document.createElement('span');
   selectorLabel.style.cssText = 'flex:1;min-width:0;font-size:11px;font-weight:600;color:#8a9499;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
 
-  const closeButton = document.createElement('button');
-  closeButton.type = 'button';
-  closeButton.setAttribute('aria-label', '关闭选择模式');
-  closeButton.style.cssText = [
+  // 完成按钮：结束连续选择
+  const finishButton = document.createElement('button');
+  finishButton.type = 'button';
+  finishButton.setAttribute('aria-label', '完成选择');
+  finishButton.textContent = '完成';
+  finishButton.style.cssText = [
     'display:inline-flex',
     'align-items:center',
-    'justify-content:center',
-    'width:22px',
-    'height:22px',
     'flex-shrink:0',
+    'height:22px',
+    'padding:0 8px',
     'border:0',
     'border-radius:6px',
-    'background:transparent',
-    'color:#8a9499',
+    'background:rgb(46 111 99 / 10%)',
+    'color:#2e6f63',
+    'font-size:11px',
+    'font-weight:700',
     'cursor:pointer',
   ].join(';');
-  closeButton.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
-  closeButton.addEventListener('click', (event: Event) => {
+  finishButton.addEventListener('click', (event: Event) => {
     event.preventDefault();
     event.stopPropagation();
     stopElementPicker();
   });
 
-  head.append(selectorLabel, closeButton);
+  head.append(selectorLabel, finishButton);
 
   // 按钮行
   const actions = document.createElement('div');
@@ -312,7 +316,28 @@ function startElementPicker() {
 
   toolbar.append(panel);
 
-  layer.append(hoverOutline, selectOutline, toolbar);
+  // 连续选择状态条：常驻左上角，显示已隐藏数 + 退出提示
+  const statusBar = document.createElement('div');
+  statusBar.style.cssText = [
+    'position: fixed',
+    'top: 12px',
+    'left: 12px',
+    'z-index: 2147483647',
+    'pointer-events: none',
+    'display: inline-flex',
+    'align-items: center',
+    'gap: 6px',
+    'padding: 5px 10px',
+    'border-radius: 999px',
+    'background: rgb(23 32 38 / 78%)',
+    'color: #ffffff',
+    'font-size: 12px',
+    'font-weight: 600',
+    'backdrop-filter: blur(6px)',
+  ].join(';');
+  statusBar.textContent = '点击元素隐藏 · 按 Esc 完成';
+
+  layer.append(hoverOutline, selectOutline, toolbar, statusBar);
   document.documentElement.appendChild(layer);
 
   pickerState = {
@@ -326,6 +351,8 @@ function startElementPicker() {
     toolbar,
     panel,
     selectorLabel,
+    statusBar,
+    hiddenCount: 0,
   };
 
   window.addEventListener('mousemove', handlePickerMouseMove, true);
@@ -421,7 +448,26 @@ async function handleHideSelectedElement(event: MouseEvent) {
   });
   markRuleSaved(hostname);
 
-  stopElementPicker();
+  // 连续选择：计数 + 继续，不退出
+  if (state) {
+    state.hiddenCount += 1;
+  }
+  continuePicking();
+}
+
+// 连续选择：隐藏后重置选中态，恢复悬停，更新状态条
+function continuePicking() {
+  const state = pickerState;
+  if (!state) return;
+
+  state.selectedElement = null;
+  state.selectedTarget = null;
+  state.outline.style.display = 'none';
+  state.toolbar.style.display = 'none';
+  state.panel.style.display = 'none';
+
+  const n = state.hiddenCount;
+  state.statusBar.textContent = n > 0 ? `已隐藏 ${n} 项 · 继续点击或按 Esc 完成` : '点击元素隐藏 · 按 Esc 完成';
 }
 
 function showAiPanel(event: MouseEvent) {
