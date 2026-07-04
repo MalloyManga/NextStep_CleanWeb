@@ -1,7 +1,21 @@
-import type { DomSummaryItem, LlmSettings } from '../types/cleanweb';
-import { getLlmSettings } from './storage';
+import OpenAI from 'openai';
+import type { DomSummaryItem } from '../types/cleanweb';
 
-export const FALLBACK_CSS = `aside,
+import type { LlmSettings } from '../types/cleanweb';
+
+export interface GenerateCssInput {
+  instruction: string;
+  domSummary: DomSummaryItem[];
+  settings?: LlmSettings;
+}
+
+export interface GenerateCssResult {
+  css: string;
+  explanation: string;
+  usedFallback: boolean;
+}
+
+const FALLBACK_CSS = `aside,
 [class*="sidebar"],
 [class*="ad"],
 [class*="recommend"] {
@@ -17,196 +31,107 @@ article {
   line-height: 1.8 !important;
 }`;
 
-export interface GenerateCssInput {
-  instruction: string;
-  domSummary: DomSummaryItem[];
-}
+const FALLBACK_RESULT: GenerateCssResult = {
+  css: FALLBACK_CSS,
+  explanation: '未配置 API Key，使用内置通用规则隐藏常见侧边栏和广告区域。',
+  usedFallback: true,
+};
 
-export interface GenerateCssResult {
-  css: string;
-  explanation: string;
-}
+declare const __LLM_API_KEY__: string;
+declare const __LLM_BASE_URL__: string;
+declare const __LLM_MODEL__: string;
 
-interface ChatMessage {
-  role: 'system' | 'user';
-  content: string;
-}
-
-interface ChatChoice {
-  message?: {
-    content?: string;
+export function getDefaultLlmConfig(): LlmSettings {
+  return {
+    apiKey: typeof __LLM_API_KEY__ !== 'undefined' ? __LLM_API_KEY__ : '',
+    baseUrl: typeof __LLM_BASE_URL__ !== 'undefined' ? __LLM_BASE_URL__ : 'https://api.openai.com/v1',
+    model: typeof __LLM_MODEL__ !== 'undefined' ? __LLM_MODEL__ : 'gpt-4o-mini',
   };
 }
 
-interface ChatCompletionResponse {
-  choices?: ChatChoice[];
-}
+function resolveConfig(input: GenerateCssInput): LlmSettings {
+  const defaults = getDefaultLlmConfig();
+  const fromInput = input.settings;
 
-interface ChatCompletionRequest {
-  model: string;
-  messages: ChatMessage[];
-  temperature: number;
-  response_format?: {
-    type: 'json_object';
+  return {
+    apiKey: (fromInput?.apiKey ?? defaults.apiKey).trim(),
+    baseUrl: (fromInput?.baseUrl ?? defaults.baseUrl).trim() || 'https://api.openai.com/v1',
+    model: (fromInput?.model ?? defaults.model).trim() || 'gpt-4o-mini',
   };
 }
 
 export async function generateCssRule(input: GenerateCssInput): Promise<GenerateCssResult> {
-  const settings = await resolveLlmSettings();
+  const config = resolveConfig(input);
 
-  if (!settings.apiKey.trim()) {
-    return createFallbackResult('未配置 API Key，已使用本地 fallback 规则。');
+  if (!config.apiKey) {
+    return FALLBACK_RESULT;
   }
 
-  const messages = createPromptMessages(input);
-  const payload = await requestChatCompletion(settings, messages);
-  const content = payload.choices?.[0]?.message?.content;
-
-  if (!content) {
-    return createFallbackResult('模型返回为空，已使用 fallback 规则。');
-  }
-
-  return parseGenerateCssResult(content);
-}
-
-async function resolveLlmSettings(): Promise<LlmSettings> {
-  const saved = await getLlmSettings();
-
-  return {
-    apiKey: saved?.apiKey || import.meta.env.WXT_LLM_API_KEY || '',
-    baseUrl: saved?.baseUrl || import.meta.env.WXT_LLM_BASE_URL || 'https://api.openai.com/v1',
-    model: saved?.model || import.meta.env.WXT_LLM_MODEL || 'gpt-4o-mini',
-  };
-}
-
-async function requestChatCompletion(
-  settings: LlmSettings,
-  messages: ChatMessage[],
-): Promise<ChatCompletionResponse> {
-  const endpoint = normalizeChatCompletionEndpoint(settings.baseUrl);
-  const baseBody: ChatCompletionRequest = {
-    model: settings.model.trim() || 'gpt-4o-mini',
-    messages,
-    temperature: 0.2,
-    response_format: { type: 'json_object' },
-  };
-
-  const response = await postChatCompletion(endpoint, settings.apiKey, baseBody);
-  if (response.ok) {
-    return (await response.json()) as ChatCompletionResponse;
-  }
-
-  if (response.status === 400) {
-    const retryBody: ChatCompletionRequest = { ...baseBody };
-    delete retryBody.response_format;
-    const retryResponse = await postChatCompletion(endpoint, settings.apiKey, retryBody);
-    if (retryResponse.ok) {
-      return (await retryResponse.json()) as ChatCompletionResponse;
-    }
-  }
-
-  return createFallbackPayload(`模型请求失败：${response.status}`);
-}
-
-function postChatCompletion(endpoint: string, apiKey: string, body: ChatCompletionRequest) {
-  return fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(body),
+  const client = new OpenAI({
+    apiKey: config.apiKey,
+    baseURL: config.baseUrl,
+    dangerouslyAllowBrowser: true,
   });
-}
 
-function createPromptMessages(input: GenerateCssInput): ChatMessage[] {
-  return [
-    {
-      role: 'system',
-      content: [
-        '你是浏览器插件 CleanWeb 的网页净化 CSS 规则生成器。',
-        '你只能返回 JSON，不要返回 Markdown。',
-        '只能生成 CSS，不能生成 JS，不能生成 HTML，不能引用远程资源。',
-        '优先使用稳定选择器：id、aria-label、role、语义 class。',
-        '避免过深 nth-child，避免影响登录、评论、按钮等交互。',
-        '必要时可以使用 !important。',
-        '返回格式必须是 {"css":"...","explanation":"..."}。',
-      ].join('\n'),
-    },
-    {
-      role: 'user',
-      content: JSON.stringify({
-        instruction: input.instruction,
-        domSummary: input.domSummary,
-      }),
-    },
-  ];
-}
+  const domSummaryText = JSON.stringify(input.domSummary.slice(0, 40), null, 2);
 
-function parseGenerateCssResult(content: string): GenerateCssResult {
-  const parsed = parseJsonObject(content);
-  const css = typeof parsed.css === 'string' ? parsed.css.trim() : '';
-  const explanation = typeof parsed.explanation === 'string' ? parsed.explanation.trim() : '';
-
-  if (!css) {
-    return createFallbackResult('模型未返回可用 CSS，已使用 fallback 规则。');
-  }
-
-  return {
-    css,
-    explanation: explanation || '已根据当前页面摘要生成 CSS 规则。',
-  };
-}
-
-function parseJsonObject(content: string): Record<string, unknown> {
-  try {
-    const parsed = JSON.parse(content) as unknown;
-    return isRecord(parsed) ? parsed : {};
-  } catch {
-    const match = content.match(/\{[\s\S]*\}/);
-    if (!match) return {};
-
-    try {
-      const parsed = JSON.parse(match[0]) as unknown;
-      return isRecord(parsed) ? parsed : {};
-    } catch {
-      return {};
-    }
-  }
-}
-
-function createFallbackPayload(explanation: string): ChatCompletionResponse {
-  return {
-    choices: [
+  const response = await client.chat.completions.create({
+    model: config.model,
+    messages: [
       {
-        message: {
-          content: JSON.stringify(createFallbackResult(explanation)),
-        },
+        role: 'system',
+        content: `You are a web page cleaning assistant. You generate safe, scoped CSS rules to hide noisy elements or restyle the page based on the user's instruction.
+
+Rules:
+- Only output raw CSS. Do not include HTML, JS, or Markdown code blocks.
+- Use stable selectors: id, aria-label, role, then semantic class names.
+- Avoid nth-child and overly deep selectors.
+- Use !important only when necessary to override existing styles.
+- Only affect the distracting areas mentioned; do not break login, comments, buttons, or main navigation.
+- Return your response as a strict JSON object with exactly two fields: "css" and "explanation".
+
+Example output:
+{
+  "css": ".sidebar, .ads { display: none !important; } main { max-width: 900px; margin: 0 auto; }",
+  "explanation": "隐藏侧边栏和广告，优化正文宽度"
+}`,
+      },
+      {
+        role: 'user',
+        content: `User instruction: ${input.instruction}
+
+DOM summary of the current page (first 40 elements):
+${domSummaryText}
+
+Generate CSS and respond with JSON only.`,
       },
     ],
-  };
-}
+    response_format: { type: 'json_object' },
+    max_tokens: 1024,
+  });
 
-function createFallbackResult(explanation: string): GenerateCssResult {
-  return {
-    css: FALLBACK_CSS,
-    explanation,
-  };
-}
-
-function normalizeChatCompletionEndpoint(baseUrl: string) {
-  const trimmed = trimTrailingSlash(baseUrl.trim() || 'https://api.openai.com/v1');
-  if (/\/chat\/completions$/i.test(trimmed)) {
-    return trimmed;
+  const raw = response.choices[0]?.message?.content?.trim() ?? '';
+  if (!raw) {
+    return FALLBACK_RESULT;
   }
 
-  return `${trimmed}/chat/completions`;
+  try {
+    const parsed = JSON.parse(raw) as Partial<GenerateCssResult>;
+    if (!parsed.css || typeof parsed.css !== 'string') {
+      return FALLBACK_RESULT;
+    }
+    return {
+      css: parsed.css.trim(),
+      explanation: typeof parsed.explanation === 'string' ? parsed.explanation.trim() : '',
+      usedFallback: false,
+    };
+  } catch {
+    return FALLBACK_RESULT;
+  }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+export function isFallbackResult(result: GenerateCssResult): boolean {
+  return result.usedFallback;
 }
 
-function trimTrailingSlash(value: string) {
-  return value.replace(/\/+$/, '');
-}
+export { FALLBACK_CSS };

@@ -1,11 +1,20 @@
 import { defineConfig } from 'wxt';
 import tailwindcss from '@tailwindcss/vite';
+import { loadEnv } from 'vite';
 
 export default defineConfig({
   modules: ['@wxt-dev/module-vue'],
-  vite: () => ({
-    plugins: [tailwindcss()],
-  }),
+  vite: () => {
+    const env = loadEnv(process.env.NODE_ENV ?? 'development', process.cwd(), 'VITE_');
+    return {
+      plugins: [tailwindcss()],
+      define: {
+        __LLM_API_KEY__: JSON.stringify(env.VITE_LLM_API_KEY ?? ''),
+        __LLM_BASE_URL__: JSON.stringify(env.VITE_LLM_BASE_URL ?? 'https://api.openai.com/v1'),
+        __LLM_MODEL__: JSON.stringify(env.VITE_LLM_MODEL ?? 'gpt-4o-mini'),
+      },
+    };
+  },
   manifest: {
     name: 'CleanWeb',
     description: 'Use natural language to clean noisy web pages.',
