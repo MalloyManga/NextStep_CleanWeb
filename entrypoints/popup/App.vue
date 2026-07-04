@@ -134,8 +134,6 @@ async function collectDomSummary() {
     summaryCount.value = response.summaryCount ?? 0;
     status.value = `已读取 ${summaryCount.value} 个元素，正在生成规则`;
 
-    console.log(llmSettings.value);
-
     const result = await generateCssRule({
       instruction: instruction.value,
       domSummary: response.summary ?? [],
