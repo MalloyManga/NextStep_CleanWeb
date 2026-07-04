@@ -38,7 +38,15 @@ export interface ResetRuleMessage {
   type: 'CLEANWEB_RESET_RULE';
 }
 
-export type CleanWebMessage = DomSummaryMessage | ApplyRuleMessage | ResetRuleMessage;
+export interface StartElementPickerMessage {
+  type: 'CLEANWEB_START_ELEMENT_PICKER';
+}
+
+export type CleanWebMessage =
+  | DomSummaryMessage
+  | ApplyRuleMessage
+  | ResetRuleMessage
+  | StartElementPickerMessage;
 
 export interface CleanWebResponse {
   ok: boolean;

@@ -1,12 +1,22 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { browser } from 'wxt/browser';
+import { storage } from 'wxt/utils/storage';
+import CleanModePanel from '../../components/popup/CleanModePanel.vue';
+import ModeTabs from '../../components/popup/ModeTabs.vue';
+import PopupHeader from '../../components/popup/PopupHeader.vue';
+import SelectModePanel from '../../components/popup/SelectModePanel.vue';
+import StatusBar from '../../components/popup/StatusBar.vue';
+import type { WorkMode } from '../../components/popup/types';
 import type {
   ApplyRuleMessage,
   CleanWebResponse,
   DomSummaryMessage,
   ResetRuleMessage,
+  StartElementPickerMessage,
 } from '../../types/cleanweb';
+
+const MODE_STORAGE_KEY = 'local:cleanweb:popup-mode';
 
 const instruction = ref('隐藏侧边栏和广告，把正文区域居中放大');
 const generatedCss = ref(`aside,
@@ -25,10 +35,22 @@ article {
   line-height: 1.8 !important;
 }`);
 const status = ref('准备净化当前页面');
+const currentSite = ref('当前页面');
 const isBusy = ref(false);
 const summaryCount = ref(0);
+const mode = ref<WorkMode>('clean');
 
 const canApply = computed(() => generatedCss.value.trim().length > 0);
+const summaryLabel = computed(() => (summaryCount.value > 0 ? `${summaryCount.value} 个元素` : '未读取'));
+
+onMounted(async () => {
+  currentSite.value = await getCurrentSiteLabel();
+  mode.value = await getSavedMode();
+});
+
+watch(mode, (nextMode) => {
+  storage.setItem(MODE_STORAGE_KEY, nextMode);
+});
 
 async function getActiveTabId() {
   const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
@@ -36,6 +58,30 @@ async function getActiveTabId() {
     throw new Error('没有找到当前标签页');
   }
   return tab.id;
+}
+
+async function getCurrentSiteLabel() {
+  const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+  return getHostnameLabel(tab?.url);
+}
+
+function getHostnameLabel(url: string | undefined) {
+  if (!url) return '当前页面';
+
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return '当前页面';
+  }
+}
+
+async function getSavedMode() {
+  const savedMode = await storage.getItem<WorkMode>(MODE_STORAGE_KEY);
+  return isWorkMode(savedMode) ? savedMode : 'clean';
+}
+
+function isWorkMode(value: unknown): value is WorkMode {
+  return value === 'clean' || value === 'select';
 }
 
 async function sendToActiveTab<TMessage, TResponse = CleanWebResponse>(message: TMessage) {
@@ -97,63 +143,49 @@ async function resetPage() {
     isBusy.value = false;
   }
 }
+
+function prepareElementPicker() {
+  mode.value = 'select';
+  startElementPicker();
+}
+
+async function startElementPicker() {
+  isBusy.value = true;
+  status.value = '请在网页中选择一个元素';
+
+  try {
+    await sendToActiveTab<StartElementPickerMessage>({
+      type: 'CLEANWEB_START_ELEMENT_PICKER',
+    });
+    status.value = '选择模式已开启';
+    window.setTimeout(() => window.close(), 120);
+  } catch (error) {
+    status.value = error instanceof Error ? error.message : '无法开启选择模式';
+  } finally {
+    isBusy.value = false;
+  }
+}
 </script>
 
 <template>
-  <main class="grid gap-3.5 p-4.5 text-ink">
-    <header class="flex items-center justify-between">
-      <div>
-        <p class="mb-0.5 text-xs font-bold uppercase text-brand">CleanWeb</p>
-        <h1 class="m-0 text-[22px] font-bold leading-tight">网页净化器</h1>
-      </div>
-      <span class="size-3 rounded-full bg-[#45a36d] shadow-[0_0_0_6px_rgb(69_163_109/14%)]" aria-hidden="true" />
-    </header>
+  <main class="min-h-140 bg-paper text-ink">
+    <PopupHeader :current-site="currentSite" :summary-label="summaryLabel" />
 
-    <label class="grid gap-1.5 text-[13px] font-bold">
-      <span>你的指令</span>
-      <textarea
-        v-model="instruction"
-        rows="3"
-        class="w-full resize-y rounded-lg border border-line bg-surface p-2.5 leading-normal text-ink outline-none focus:border-brand focus:shadow-[0_0_0_3px_var(--color-brand-soft)]"
+    <section class="grid gap-4 p-5">
+      <ModeTabs v-model="mode" />
+
+      <CleanModePanel
+        v-if="mode === 'clean'"
+        v-model:instruction="instruction"
+        v-model:generated-css="generatedCss"
+        :is-busy="isBusy"
+        :can-apply="canApply"
+        @analyze="collectDomSummary"
+        @apply="applyCss"
       />
-    </label>
+      <SelectModePanel v-else :is-busy="isBusy" @start-picker="prepareElementPicker" />
 
-    <label class="grid gap-1.5 text-[13px] font-bold">
-      <span>当前测试 CSS</span>
-      <textarea
-        v-model="generatedCss"
-        rows="10"
-        class="w-full resize-y rounded-lg border border-line bg-surface p-2.5 font-mono text-xs leading-normal text-ink outline-none focus:border-brand focus:shadow-[0_0_0_3px_var(--color-brand-soft)]"
-      />
-    </label>
-
-    <div class="grid grid-cols-[1fr_1.25fr_0.85fr] gap-2">
-      <button
-        type="button"
-        :disabled="isBusy"
-        class="min-h-9.5 cursor-pointer rounded-lg border border-line bg-surface px-2 font-bold text-ink disabled:cursor-not-allowed disabled:opacity-60"
-        @click="collectDomSummary"
-      >
-        读取页面
-      </button>
-      <button
-        type="button"
-        :disabled="isBusy || !canApply"
-        class="min-h-9.5 cursor-pointer rounded-lg border border-brand bg-brand px-2 font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
-        @click="applyCss"
-      >
-        应用并保存
-      </button>
-      <button
-        type="button"
-        :disabled="isBusy"
-        class="min-h-9.5 cursor-pointer rounded-lg border border-line bg-surface px-2 font-bold text-danger disabled:cursor-not-allowed disabled:opacity-60"
-        @click="resetPage"
-      >
-        恢复
-      </button>
-    </div>
-
-    <p class="m-0 min-h-4.5 text-xs text-muted">{{ status }}</p>
+      <StatusBar :status="status" :is-busy="isBusy" @reset="resetPage" />
+    </section>
   </main>
 </template>
