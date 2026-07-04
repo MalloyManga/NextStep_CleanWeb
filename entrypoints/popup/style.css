@@ -1,24 +1,41 @@
-@import "tailwindcss";
+﻿@import "tailwindcss";
 
 @theme {
-  --color-ink: #172026;
-  --color-paper: #f7f5ef;
-  --color-surface: #fffdf8;
-  --color-line: #d8d4ca;
+  /* 文字 */
+  --color-ink: #1f2a2e;
+  --color-ink-soft: #4a555a;
+  --color-muted: #8a9499;
+
+  /* 底色：统一白底，去掉难分辨的双层米色 */
+  --color-paper: #ffffff;
+  --color-surface: #ffffff;
+
+  /* 线条 */
+  --color-line: #e6e4df;
+  --color-line-strong: #d3d0c8;
+
+  /* 品牌：保留绿白配色，只强调用 */
   --color-brand: #2e6f63;
-  --color-brand-dark: #255c52;
-  --color-brand-soft: rgb(46 111 99 / 14%);
-  --color-danger: #7a3327;
-  --color-muted: #57636b;
+  --color-brand-dark: #245a50;
+  --color-brand-soft: rgb(46 111 99 / 10%);
+  --color-brand-tint: rgb(46 111 99 / 6%);
+
+  /* 状态 */
+  --color-danger: #b1452f;
+  --color-danger-soft: rgb(177 69 47 / 8%);
+
+  /* 代码 */
   --color-code: #101817;
-  --color-code-text: #dff7ec;
+  --color-code-text: #d7f0e6;
 }
 
 body {
-  width: 420px;
+  width: 384px;
   margin: 0;
   color: var(--color-ink);
   background: var(--color-paper);
+  font-family: "Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   scrollbar-width: none;
 }
 
@@ -35,7 +52,8 @@ body::-webkit-scrollbar {
 }
 
 button,
-textarea {
+textarea,
+input {
   font: inherit;
 }
 

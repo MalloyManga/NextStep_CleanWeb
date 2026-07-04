@@ -1,4 +1,4 @@
-import { browser } from 'wxt/browser';
+﻿import { browser } from 'wxt/browser';
 import type {
   ApplyRuleMessage,
   CleanWebMessage,
@@ -48,7 +48,7 @@ export default defineContentScript({
         return Promise.resolve({ ok: true });
       }
 
-      return Promise.resolve({ ok: false, error: '未知消息类型' });
+      return Promise.resolve({ ok: false, error: '鏈煡娑堟伅绫诲瀷' });
     });
   },
 });
@@ -102,9 +102,11 @@ interface PickerState {
     y: number;
   };
   layer: HTMLDivElement;
+  hoverOutline: HTMLDivElement;
   outline: HTMLDivElement;
   toolbar: HTMLDivElement;
   panel: HTMLDivElement;
+  selectorLabel: HTMLSpanElement;
 }
 
 function startElementPicker() {
@@ -117,12 +119,27 @@ function startElementPicker() {
     'inset: 0',
     'z-index: 2147483646',
     'pointer-events: none',
-    'font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+    'font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif',
   ].join(';');
 
-  const outline = document.createElement('div');
-  outline.id = PICKER_OUTLINE_ID;
-  outline.style.cssText = [
+  // 悬停描边：浅色细线
+  const hoverOutline = document.createElement('div');
+  hoverOutline.id = 'cleanweb-picker-hover';
+  hoverOutline.style.cssText = [
+    'position: fixed',
+    'display: none',
+    'z-index: 2147483646',
+    'pointer-events: none',
+    'border: 1px solid rgb(46 111 99 / 55%)',
+    'border-radius: 6px',
+    'background: rgb(46 111 99 / 6%)',
+    'transition: all 80ms ease-out',
+  ].join(';');
+
+  // 选中描边：品牌色实心 + 遮罩
+  const selectOutline = document.createElement('div');
+  selectOutline.id = PICKER_OUTLINE_ID;
+  selectOutline.style.cssText = [
     'position: fixed',
     'display: none',
     'z-index: 2147483646',
@@ -130,48 +147,86 @@ function startElementPicker() {
     'border: 2px solid #2e6f63',
     'border-radius: 8px',
     'background: rgb(46 111 99 / 10%)',
-    'box-shadow: 0 0 0 9999px rgb(23 32 38 / 12%)',
+    'box-shadow: 0 0 0 9999px rgb(23 32 38 / 14%)',
   ].join(';');
 
+  // 操作浮层：带文字按钮 + 关闭
   const toolbar = document.createElement('div');
   toolbar.id = PICKER_TOOLBAR_ID;
   toolbar.style.cssText = [
     'position: fixed',
     'display: none',
-    'z-index: 2147483647',
+    'flex-direction: column',
     'gap: 8px',
+    'z-index: 2147483647',
     'pointer-events: auto',
-    'padding: 6px',
-    'border: 1px solid rgb(216 212 202)',
-    'border-radius: 14px',
-    'background: rgb(255 253 248)',
-    'box-shadow: 0 16px 44px rgb(23 32 38 / 22%)',
+    'min-width: 180px',
+    'padding: 10px',
+    'border: 1px solid rgb(230 228 223)',
+    'border-radius: 12px',
+    'background: #ffffff',
+    'box-shadow: 0 12px 36px rgb(23 32 38 / 20%)',
+    'color: #1f2a2e',
   ].join(';');
 
-  const hideButton = createPickerIconButton('隐藏元素', createTrashIcon());
-  hideButton.addEventListener('click', handleHideSelectedElement);
-  const aiButton = createPickerIconButton('AI 修改', createSparkleIcon());
-  aiButton.addEventListener('click', showAiPanel);
-  toolbar.append(hideButton, aiButton);
+  // 顶部：选中信息 + 关闭
+  const head = document.createElement('div');
+  head.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px';
 
+  const selectorLabel = document.createElement('span');
+  selectorLabel.style.cssText = 'flex:1;min-width:0;font-size:11px;font-weight:600;color:#8a9499;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+
+  const closeButton = document.createElement('button');
+  closeButton.type = 'button';
+  closeButton.setAttribute('aria-label', '关闭选择模式');
+  closeButton.style.cssText = [
+    'display:inline-flex',
+    'align-items:center',
+    'justify-content:center',
+    'width:22px',
+    'height:22px',
+    'flex-shrink:0',
+    'border:0',
+    'border-radius:6px',
+    'background:transparent',
+    'color:#8a9499',
+    'cursor:pointer',
+  ].join(';');
+  closeButton.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+  closeButton.addEventListener('click', (event: Event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    stopElementPicker();
+  });
+
+  head.append(selectorLabel, closeButton);
+
+  // 按钮行
+  const actions = document.createElement('div');
+  actions.style.cssText = 'display:flex;gap:6px';
+
+  const hideButton = createPickerButton('隐藏', createTrashIcon(), true);
+  hideButton.addEventListener('click', handleHideSelectedElement);
+  const aiButton = createPickerButton('AI 修改', createSparkleIcon(), false);
+  aiButton.addEventListener('click', showAiPanel);
+  actions.append(hideButton, aiButton);
+
+  toolbar.append(head, actions);
+
+  // AI 内联面板
   const panel = document.createElement('div');
   panel.id = PICKER_PANEL_ID;
   panel.style.cssText = [
-    'position: fixed',
     'display: none',
-    'z-index: 2147483647',
-    'width: 260px',
-    'pointer-events: auto',
-    'padding: 10px',
-    'border: 1px solid rgb(216 212 202)',
-    'border-radius: 14px',
-    'background: rgb(255 253 248)',
-    'box-shadow: 0 16px 44px rgb(23 32 38 / 22%)',
-    'color: #172026',
+    'flex-direction: column',
+    'gap: 6px',
+    'margin-top: 2px',
   ].join(';');
   panel.append(createAiPanelContent());
 
-  layer.append(outline, toolbar, panel);
+  toolbar.append(panel);
+
+  layer.append(hoverOutline, selectOutline, toolbar);
   document.documentElement.appendChild(layer);
 
   pickerState = {
@@ -180,9 +235,11 @@ function startElementPicker() {
     selectedTarget: null,
     pointer: { x: 0, y: 0 },
     layer,
-    outline,
+    hoverOutline,
+    outline: selectOutline,
     toolbar,
     panel,
+    selectorLabel,
   };
 
   window.addEventListener('mousemove', handlePickerMouseMove, true);
@@ -213,8 +270,9 @@ function handlePickerMouseMove(event: MouseEvent) {
 
   state.hoveredElement = target;
 
+  // 未选中时显示悬停描边
   if (!state.selectedElement) {
-    renderOutline(target);
+    renderHoverOutline(target);
   }
 }
 
@@ -234,7 +292,17 @@ function handlePickerClick(event: MouseEvent) {
   state.selectedElement = target;
   state.selectedTarget = hideTarget;
 
+  // 隐藏悬停描边，显示选中描边
+  state.hoverOutline.style.display = 'none';
   renderOutline(hideTarget);
+
+  // 显示选择器标签
+  const selector = buildReadableSelector(hideTarget);
+  if (state.selectorLabel) {
+    state.selectorLabel.textContent = selector;
+    state.selectorLabel.title = selector;
+  }
+
   renderToolbar(event.clientX, event.clientY);
 }
 
@@ -276,28 +344,32 @@ function showAiPanel(event: MouseEvent) {
   const state = pickerState;
   if (!state) return;
 
-  state.panel.style.display = 'block';
-  positionFloatingElement(state.panel, state.pointer.x + 14, state.pointer.y + 14);
+  state.panel.style.display = 'flex';
 }
 
-function createPickerIconButton(label: string, icon: SVGElement) {
+function createPickerButton(label: string, icon: SVGElement, primary: boolean) {
   const button = document.createElement('button');
   button.type = 'button';
-  button.title = label;
   button.setAttribute('aria-label', label);
   button.style.cssText = [
     'display: inline-flex',
     'align-items: center',
     'justify-content: center',
-    'width: 34px',
-    'height: 34px',
+    'gap: 4px',
+    'flex: 1',
+    'height: 30px',
     'border: 0',
-    'border-radius: 10px',
-    'color: #172026',
-    'background: #f7f5ef',
+    'border-radius: 8px',
+    'font-size: 12px',
+    'font-weight: 600',
     'cursor: pointer',
+    primary ? 'color: #ffffff' : 'color: #1f2a2e',
+    primary ? 'background: #2e6f63' : 'background: rgb(46 111 99 / 8%)',
   ].join(';');
-  button.append(icon);
+
+  const span = document.createElement('span');
+  span.textContent = label;
+  button.append(icon, span);
   return button;
 }
 
@@ -316,8 +388,8 @@ function createSparkleIcon() {
 function createSvgIcon() {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('viewBox', '0 0 24 24');
-  svg.setAttribute('width', '18');
-  svg.setAttribute('height', '18');
+  svg.setAttribute('width', '14');
+  svg.setAttribute('height', '14');
   svg.setAttribute('fill', 'none');
   svg.setAttribute('stroke', 'currentColor');
   svg.setAttribute('stroke-width', '2');
@@ -331,32 +403,87 @@ function createAiPanelContent() {
 
   const label = document.createElement('label');
   label.textContent = '局部 AI 指令';
-  label.style.cssText = 'display:block;margin-bottom:7px;font-size:12px;font-weight:800;color:#57636b';
+  label.style.cssText = 'display:block;margin-bottom:4px;font-size:11px;font-weight:600;color:#8a9499';
 
   const input = document.createElement('textarea');
   input.rows = 3;
   input.placeholder = '例如：让这个区域更清爽';
-  input.disabled = true;
   input.style.cssText = [
     'width: 100%',
     'box-sizing: border-box',
     'resize: none',
-    'border: 1px solid rgb(216 212 202)',
-    'border-radius: 10px',
-    'padding: 9px',
+    'border: 1px solid rgb(230 228 223)',
+    'border-radius: 8px',
+    'padding: 8px',
     'font: inherit',
     'font-size: 12px',
     'line-height: 1.5',
-    'color: #57636b',
-    'background: #f7f5ef',
+    'color: #1f2a2e',
+    'background: #ffffff',
+    'outline: none',
   ].join(';');
 
-  const note = document.createElement('p');
-  note.textContent = 'AI 修改接口待接入';
-  note.style.cssText = 'margin:8px 0 0;font-size:12px;font-weight:700;color:#57636b';
+  const actions = document.createElement('div');
+  actions.style.cssText = 'display:flex;justify-content:flex-end;gap:6px';
 
-  wrapper.append(label, input, note);
+  const cancelBtn = document.createElement('button');
+  cancelBtn.type = 'button';
+  cancelBtn.textContent = '取消';
+  cancelBtn.style.cssText = [
+    'height:26px',
+    'padding:0 10px',
+    'border:1px solid rgb(230 228 223)',
+    'border-radius:6px',
+    'background:#ffffff',
+    'font-size:11px',
+    'font-weight:600',
+    'color:#8a9499',
+    'cursor:pointer',
+  ].join(';');
+  cancelBtn.addEventListener('click', (event: Event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const state = pickerState;
+    if (state) state.panel.style.display = 'none';
+  });
+
+  const submitBtn = document.createElement('button');
+  submitBtn.type = 'button';
+  submitBtn.textContent = '生成并应用';
+  submitBtn.style.cssText = [
+    'height:26px',
+    'padding:0 10px',
+    'border:0',
+    'border-radius:6px',
+    'background:#2e6f63',
+    'font-size:11px',
+    'font-weight:600',
+    'color:#ffffff',
+    'cursor:pointer',
+  ].join(';');
+  submitBtn.addEventListener('click', (event: Event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    // LLM 未接入：占位反馈
+    input.value = '';
+    input.placeholder = 'AI 接口接入后将在此生成规则…';
+  });
+
+  actions.append(cancelBtn, submitBtn);
+  wrapper.append(label, input, actions);
   return wrapper;
+}
+
+function renderHoverOutline(element: HTMLElement) {
+  const state = pickerState;
+  if (!state?.hoverOutline) return;
+
+  const rect = element.getBoundingClientRect();
+  state.hoverOutline.style.display = 'block';
+  state.hoverOutline.style.left = `${Math.max(0, rect.left)}px`;
+  state.hoverOutline.style.top = `${Math.max(0, rect.top)}px`;
+  state.hoverOutline.style.width = `${Math.max(0, rect.width)}px`;
+  state.hoverOutline.style.height = `${Math.max(0, rect.height)}px`;
 }
 
 function renderOutline(element: HTMLElement) {
@@ -375,7 +502,7 @@ function renderToolbar(x: number, y: number) {
   const state = pickerState;
   if (!state) return;
 
-  state.toolbar.style.display = 'inline-flex';
+  state.toolbar.style.display = 'flex';
   state.panel.style.display = 'none';
   positionFloatingElement(state.toolbar, x + 14, y + 14);
 }
@@ -387,7 +514,6 @@ function positionFloatingElement(element: HTMLElement, x: number, y: number) {
   element.style.left = `${left}px`;
   element.style.top = `${top}px`;
 }
-
 function findSmartHideTarget(element: HTMLElement) {
   const viewportArea = window.innerWidth * window.innerHeight;
   let target = element;
@@ -473,8 +599,9 @@ function appendInstruction(currentInstruction: string | undefined, nextInstructi
     return nextInstruction;
   }
 
-  return `${currentInstruction.trim()}；${nextInstruction}`;
+  return `${currentInstruction.trim()}锛?{nextInstruction}`;
 }
 
 export { buildReadableSelector, collectDomSummary };
 export type { DomSummaryItem };
+

@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 defineProps<{
   status: string;
   isBusy: boolean;
@@ -10,12 +10,12 @@ defineEmits<{
 </script>
 
 <template>
-  <div class="grid grid-cols-[1fr_auto] items-center gap-3 rounded-xl border border-line bg-surface px-3 py-2.5">
-    <p class="m-0 min-w-0 truncate text-xs font-bold text-muted">{{ status }}</p>
+  <div class="flex items-center justify-between gap-3 pt-1">
+    <p class="m-0 min-w-0 truncate text-xs text-muted">{{ status }}</p>
     <button
       type="button"
       :disabled="isBusy"
-      class="rounded-lg px-3 py-1.5 text-xs font-black text-danger transition hover:bg-paper disabled:cursor-not-allowed disabled:opacity-60"
+      class="shrink-0 text-xs text-muted underline-offset-2 transition hover:text-danger hover:underline disabled:cursor-not-allowed disabled:opacity-50"
       @click="$emit('reset')"
     >
       恢复

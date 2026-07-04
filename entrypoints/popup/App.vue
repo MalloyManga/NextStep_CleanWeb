@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import { browser } from 'wxt/browser';
 import { storage } from 'wxt/utils/storage';
@@ -18,22 +18,8 @@ import type {
 
 const MODE_STORAGE_KEY = 'local:cleanweb:popup-mode';
 
-const instruction = ref('隐藏侧边栏和广告，把正文区域居中放大');
-const generatedCss = ref(`aside,
-[class*="sidebar"],
-[class*="ad"],
-[class*="recommend"] {
-  display: none !important;
-}
-
-main,
-article {
-  max-width: 860px !important;
-  margin-left: auto !important;
-  margin-right: auto !important;
-  font-size: 18px !important;
-  line-height: 1.8 !important;
-}`);
+const instruction = ref('隐藏侧栏和广告，把正文区域居中放大');
+const generatedCss = ref('');
 const status = ref('准备净化当前页面');
 const currentSite = ref('当前页面');
 const isBusy = ref(false);
@@ -41,7 +27,7 @@ const summaryCount = ref(0);
 const mode = ref<WorkMode>('clean');
 
 const canApply = computed(() => generatedCss.value.trim().length > 0);
-const summaryLabel = computed(() => (summaryCount.value > 0 ? `${summaryCount.value} 个元素` : '未读取'));
+const summaryLabel = computed(() => (summaryCount.value > 0 ? `${summaryCount.value} 元素` : ''));
 
 onMounted(async () => {
   currentSite.value = await getCurrentSiteLabel();
@@ -99,7 +85,12 @@ async function collectDomSummary() {
     });
 
     summaryCount.value = response.summaryCount ?? 0;
-    status.value = `已读取 ${summaryCount.value} 个可见元素`;
+    status.value = `已读取 ${summaryCount.value} 个元素`;
+
+    // 模拟生成 CSS（LLM 未接入前用占位）
+    if (!generatedCss.value.trim()) {
+      generatedCss.value = '/* 生成的规则将显示在这里 */';
+    }
   } catch (error) {
     status.value = error instanceof Error ? error.message : '读取页面结构失败';
   } finally {
@@ -168,24 +159,22 @@ async function startElementPicker() {
 </script>
 
 <template>
-  <main class="min-h-140 bg-paper text-ink">
+  <main class="grid min-h-0 content-start gap-3 p-4">
     <PopupHeader :current-site="currentSite" :summary-label="summaryLabel" />
 
-    <section class="grid gap-4 p-5">
-      <ModeTabs v-model="mode" />
+    <ModeTabs v-model="mode" />
 
-      <CleanModePanel
-        v-if="mode === 'clean'"
-        v-model:instruction="instruction"
-        v-model:generated-css="generatedCss"
-        :is-busy="isBusy"
-        :can-apply="canApply"
-        @analyze="collectDomSummary"
-        @apply="applyCss"
-      />
-      <SelectModePanel v-else :is-busy="isBusy" @start-picker="prepareElementPicker" />
+    <CleanModePanel
+      v-if="mode === 'clean'"
+      v-model:instruction="instruction"
+      v-model:generated-css="generatedCss"
+      :is-busy="isBusy"
+      :can-apply="canApply"
+      @analyze="collectDomSummary"
+      @apply="applyCss"
+    />
+    <SelectModePanel v-else :is-busy="isBusy" @start-picker="prepareElementPicker" />
 
-      <StatusBar :status="status" :is-busy="isBusy" @reset="resetPage" />
-    </section>
+    <StatusBar :status="status" :is-busy="isBusy" @reset="resetPage" />
   </main>
 </template>

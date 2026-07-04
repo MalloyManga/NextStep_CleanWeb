@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 defineProps<{
   isBusy: boolean;
 }>();
@@ -9,30 +9,30 @@ defineEmits<{
 </script>
 
 <template>
-  <div class="grid gap-4">
-    <div class="rounded-xl border border-line bg-surface p-4">
-      <div class="flex items-center justify-between gap-3">
-        <div>
-          <p class="m-0 text-sm font-black">目标元素</p>
-          <p class="m-0 mt-1 text-xs font-bold text-muted">尚未选择</p>
-        </div>
-        <span class="rounded-full bg-paper px-2.5 py-1 text-xs font-black text-brand">Inspect</span>
-      </div>
-    </div>
+  <div class="grid gap-3">
+    <p class="m-0 text-xs leading-relaxed text-muted">
+      点击下方按钮，然后在网页上悬停并点击目标区域，选中后会出现操作浮层。
+    </p>
 
     <button
       type="button"
       :disabled="isBusy"
-      class="min-h-12 rounded-xl border border-brand bg-brand px-3 text-sm font-black text-white shadow-sm transition hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-60"
+      class="flex h-9 items-center justify-center gap-1.5 rounded-lg bg-brand px-3 text-sm font-medium text-white transition hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-50"
       @click="$emit('startPicker')"
     >
-      选择网页元素
+      <svg
+        class="h-4 w-4"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M4 4l6 16 2 -7 7 -2z" />
+      </svg>
+      <span>进入元素选择模式</span>
     </button>
-
-    <div class="rounded-xl border border-line bg-surface p-4">
-      <p class="m-0 text-xs font-bold leading-5 text-muted">
-        开启后在网页中悬停目标区域，点击选中。操作按钮会出现在鼠标附近。
-      </p>
-    </div>
   </div>
 </template>
