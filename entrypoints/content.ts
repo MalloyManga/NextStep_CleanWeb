@@ -12,6 +12,7 @@ const STYLE_ID = 'cleanweb-generated-style';
 
 export default defineContentScript({
   matches: ['<all_urls>'],
+  runAt: 'document_start',
   async main() {
     await applySavedRule();
 
@@ -61,13 +62,15 @@ async function handleApplyRule(message: ApplyRuleMessage): Promise<CleanWebRespo
 }
 
 function injectCss(css: string) {
-  let style = document.getElementById(STYLE_ID) as HTMLStyleElement | null;
+  const existingStyle = document.getElementById(STYLE_ID);
+  let style = existingStyle instanceof HTMLStyleElement ? existingStyle : null;
 
   if (!style) {
     style = document.createElement('style');
     style.id = STYLE_ID;
     style.dataset.cleanweb = 'true';
-    document.documentElement.appendChild(style);
+    const parent = document.head ?? document.documentElement;
+    parent.appendChild(style);
   }
 
   style.textContent = css;
