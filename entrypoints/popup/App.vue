@@ -187,7 +187,9 @@ function sendToBackground<TMessage, TResponse = CleanWebResponse>(message: TMess
 
 async function collectDomSummary() {
   isBusy.value = true
-  status.value = '正在后台生成规则'
+  summaryCount.value = 0
+  status.value = '正在后台读取页面结构'
+  startGenerationPolling()
 
   try {
     console.info('[CleanWeb][Popup] start generation', {
@@ -213,8 +215,11 @@ async function collectDomSummary() {
     status.value = response.ok ? '规则已应用并保存' : response.error ?? '生成规则失败'
   } catch (error) {
     status.value = error instanceof Error ? error.message : '生成规则失败'
+    stopGenerationPolling()
   } finally {
-    isBusy.value = false
+    if (generationPollId === undefined) {
+      isBusy.value = false
+    }
   }
 }
 

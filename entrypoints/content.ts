@@ -833,8 +833,11 @@ function createAiPanelContent() {
       const result = response.result as AiModifyResult;
 
       if (!result.css) {
-        input.placeholder = result.explanation || 'AI 未返回规则';
+        input.placeholder = '未生成可用 CSS，请换个说法';
         input.value = '';
+        if (state) {
+          state.statusBar.textContent = 'AI 修改没有生成可应用规则 · 继续选择或按 Esc 完成';
+        }
         return;
       }
 

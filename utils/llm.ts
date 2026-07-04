@@ -4,6 +4,7 @@ import type {
   AiModifyRequest,
   AiModifyResult,
   DomSummaryItem,
+  ElementContextItem,
   LlmSettings,
   SelectedElementContext,
   SmartHideRequest,
@@ -29,6 +30,9 @@ interface JsonCompletionResult {
   responseSnapshot: string;
   retriedWithoutResponseFormat: boolean;
 }
+
+const PAGE_GENERATION_MAX_TOKENS = 6000;
+const AI_REQUEST_TIMEOUT_MS = 60_000;
 
 const FALLBACK_CSS = `aside,
 [class*="sidebar"],
@@ -89,7 +93,7 @@ function createClient(config: LlmSettings) {
 export async function generateCssRule(input: GenerateCssInput): Promise<GenerateCssResult> {
   const config = await resolveConfig(input.settings);
   const requestStartedAt = Date.now();
-  const summaryLimit = 60;
+  const summaryLimit = 120; // 实际发送给AI的DOM数量
   const debugBase = {
     instruction: input.instruction,
     model: config.model,
@@ -134,9 +138,15 @@ Rules:
 - Use !important only when necessary to override existing styles.
 - Follow the user's intent in any language. If they ask to hide/remove/delete, hide distracting elements. If they ask to beautify/enlarge/center/highlight/clean up/restyle, prefer typography, spacing, width, alignment, contrast, borders, shadows, and focus states.
 - Do not default to display:none. Use display:none mainly for explicit hiding/removal requests or obvious ads/recommendation/sidebar noise.
+- Never hide broad parent containers and then try to show their children again. CSS cannot reveal children of a display:none parent.
+- Never use bare tag selectors for hiding, such as "iframe", "div", "section", "main", "article", "body", or "html".
+- Hide ad shells/containers instead of only hiding ad images or iframes. Prefer selectors whose id/class/text contains ad, ads, advert, banner, kp_box, carousel_item_iframe, or promotion.
+- If the user asks to keep specific sections, do not hide any selector whose DOM summary text contains those kept section names.
+- Do not restyle carousel/swiper internals unless the user explicitly asks. Avoid setting display/grid/flex/width on selectors containing carousel, swiper, home-project-cont, or el-carousel.
 - Keep interaction safe: do not break login, comments, buttons, inputs, or main navigation unless the user explicitly asks.
 - Keep the result scoped to selectors that appear in the DOM summary.
 - The explanation should use the same language as the user's instruction when practical.
+- Think as little as possible. Do not spend tokens on analysis. Put the final JSON object directly in the assistant content.
 
 Example output:
 {
@@ -158,7 +168,7 @@ Generate CSS and respond with JSON only.`,
   let completion: JsonCompletionResult;
 
   try {
-    completion = await requestJsonCompletion(config, messages, 1500);
+    completion = await requestJsonCompletion(config, messages, PAGE_GENERATION_MAX_TOKENS);
   } catch (error) {
     return createFallbackResult('Rule generation request failed. Applied the built-in fallback rule.', {
       ...debugBase,
@@ -172,7 +182,7 @@ Generate CSS and respond with JSON only.`,
     console.warn('[CleanWeb][AI] empty response', {
       model: config.model,
     });
-    return createFallbackResult('AI returned an empty response. Applied the built-in fallback rule.', {
+    return createFallbackResult(getEmptyResponseExplanation(completion.responseSnapshot), {
       ...debugBase,
       responseFinishedAt: Date.now(),
       rawResponse: completion.raw,
@@ -197,9 +207,10 @@ Generate CSS and respond with JSON only.`,
       });
     }
 
+    const sanitizedCss = sanitizeGeneratedCss(parsed.css.trim(), input.domSummary, input.instruction);
     const explanation = typeof parsed.explanation === 'string' ? parsed.explanation.trim() : '';
     const result = {
-      css: parsed.css.trim(),
+      css: sanitizedCss,
       explanation,
       usedFallback: false,
       debug: {
@@ -207,7 +218,7 @@ Generate CSS and respond with JSON only.`,
         responseFinishedAt: Date.now(),
         rawResponse: completion.raw,
         responseSnapshot: completion.responseSnapshot,
-        cssLength: parsed.css.trim().length,
+        cssLength: sanitizedCss.length,
         explanation,
         usedFallback: false,
         retriedWithoutResponseFormat: completion.retriedWithoutResponseFormat,
@@ -261,6 +272,7 @@ Rules:
 - Return a strict JSON object with fields: "selector", "css", "explanation".
 - The selector should target the smallest reasonable container that removes the visual noise.
 - Do not hide html, body, main, article, or any area larger than 70% of the viewport.
+- Do not hide ancestors that contain many unrelated links/buttons or page sections.
 - Use stable selectors: id, aria-label, role, then semantic class names.
 - Prefer the recommended target if one is provided, but improve it if possible.
 - CSS must only hide the target, and may use !important if necessary.`,
@@ -284,10 +296,16 @@ Rules:
   try {
     const parsed = parseJsonObject(completion.raw) as Partial<SmartHideResult>;
     const nextSelector = parsed.selector?.trim() || selector;
+    const nextCss = sanitizeSelectedElementCss(
+      parsed.css?.trim() || `${nextSelector} {\n  display: none !important;\n}`,
+      request.context,
+      { allowHide: true },
+    );
+
     return {
       action: 'smart-hide',
       selector: nextSelector,
-      css: parsed.css?.trim() || `${nextSelector} {\n  display: none !important;\n}`,
+      css: nextCss || fallbackSmartHideCss(request.context),
       explanation: parsed.explanation?.trim() || '',
     };
   } catch {
@@ -320,6 +338,8 @@ export async function generateAiModifyRule(request: AiModifyRequest): Promise<Ai
 Rules:
 - Return a strict JSON object with fields: "css", "explanation".
 - Only affect the selected element or its reasonable parent container.
+- Prefer visible improvements: spacing, size, border-radius, color, contrast, shadow, typography, and focus states.
+- Do not hide/remove content unless the user's instruction explicitly says hide, remove, delete, or discard.
 - Do not generate JavaScript, HTML, or remote resources.
 - Use !important when necessary to override existing styles.
 - Keep the CSS scoped and safe.`,
@@ -341,9 +361,11 @@ Rules:
 
   try {
     const parsed = parseJsonObject(completion.raw) as Partial<AiModifyResult>;
+    const allowHide = hasExplicitHideIntent(request.instruction);
+
     return {
       action: 'ai-modify',
-      css: parsed.css?.trim() || '',
+      css: sanitizeSelectedElementCss(parsed.css?.trim() || '', request.context, { allowHide }),
       explanation: parsed.explanation?.trim() || '',
     };
   } catch {
@@ -361,6 +383,7 @@ async function requestJsonCompletion(
   maxTokens: number,
 ): Promise<JsonCompletionResult> {
   const client = createClient(config);
+  const withTimeout = createRequestTimeout(AI_REQUEST_TIMEOUT_MS);
 
   try {
     const response = await client.chat.completions.create({
@@ -368,6 +391,10 @@ async function requestJsonCompletion(
       messages,
       response_format: { type: 'json_object' },
       max_tokens: maxTokens,
+    }, {
+      maxRetries: 0,
+      signal: withTimeout.signal,
+      timeout: AI_REQUEST_TIMEOUT_MS,
     });
 
     return {
@@ -376,23 +403,266 @@ async function requestJsonCompletion(
       retriedWithoutResponseFormat: false,
     };
   } catch (error) {
+    if (withTimeout.isTimedOut()) {
+      throw new Error(`AI request exceeded ${Math.round(AI_REQUEST_TIMEOUT_MS / 1000)} seconds.`);
+    }
+
     console.warn('[CleanWeb][AI] response_format request failed, retrying without it', {
       model: config.model,
       error: getErrorMessage(error),
     });
 
-    const response = await client.chat.completions.create({
-      model: config.model,
-      messages,
-      max_tokens: maxTokens,
-    });
+    const retryTimeout = createRequestTimeout(AI_REQUEST_TIMEOUT_MS);
+    try {
+      const response = await client.chat.completions.create({
+        model: config.model,
+        messages,
+        max_tokens: maxTokens,
+      }, {
+        maxRetries: 0,
+        signal: retryTimeout.signal,
+        timeout: AI_REQUEST_TIMEOUT_MS,
+      });
 
-    return {
-      raw: response.choices[0]?.message?.content?.trim() ?? '',
-      responseSnapshot: stringifyResponseSnapshot(response),
-      retriedWithoutResponseFormat: true,
-    };
+      return {
+        raw: response.choices[0]?.message?.content?.trim() ?? '',
+        responseSnapshot: stringifyResponseSnapshot(response),
+        retriedWithoutResponseFormat: true,
+      };
+    } catch (retryError) {
+      if (retryTimeout.isTimedOut()) {
+        throw new Error(`AI request exceeded ${Math.round(AI_REQUEST_TIMEOUT_MS / 1000)} seconds.`);
+      }
+
+      throw retryError;
+    } finally {
+      retryTimeout.clear();
+    }
+  } finally {
+    withTimeout.clear();
   }
+}
+
+function createRequestTimeout(ms: number) {
+  const controller = new AbortController();
+  let timedOut = false;
+  const timeoutId = globalThis.setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, ms);
+
+  return {
+    signal: controller.signal,
+    clear: () => globalThis.clearTimeout(timeoutId),
+    isTimedOut: () => timedOut,
+  };
+}
+
+function sanitizeGeneratedCss(css: string, domSummary: DomSummaryItem[], instruction: string) {
+  const protectedTerms = getProtectedTerms(instruction);
+  const rules: string[] = [];
+  const chromeSelectors: string[] = [];
+  const rulePattern = /([^{}]+)\{([^{}]*)\}/g;
+  let match: RegExpExecArray | null;
+  let lastIndex = 0;
+
+  while ((match = rulePattern.exec(css)) !== null) {
+    const beforeRule = css.slice(lastIndex, match.index).trim();
+    if (beforeRule) {
+      rules.push(beforeRule);
+    }
+
+    const selectorText = match[1].trim();
+    const declarations = match[2].trim();
+    const selectors = splitSelectorList(selectorText);
+    const safeSelectors = declarationsHideElement(declarations)
+      ? expandAdHideSelectors(selectors, domSummary).filter((selector) => !isUnsafeHideSelector(selector, domSummary, protectedTerms))
+      : selectors.filter((selector) => !isUnsafeRestyleSelector(selector, declarations));
+    const nextDeclarations = normalizeNestedCardChrome(safeSelectors, declarations, chromeSelectors);
+
+    if (safeSelectors.length > 0 && nextDeclarations) {
+      rules.push(`${safeSelectors.join(', ')} { ${nextDeclarations} }`);
+    }
+
+    lastIndex = rulePattern.lastIndex;
+  }
+
+  const trailingText = css.slice(lastIndex).trim();
+  if (trailingText) {
+    rules.push(trailingText);
+  }
+
+  return rules.join('\n\n').trim();
+}
+
+function expandAdHideSelectors(selectors: string[], domSummary: DomSummaryItem[]) {
+  const expandedSelectors = new Set<string>();
+
+  for (const selector of selectors) {
+    expandedSelectors.add(selector);
+
+    if (!isInnerAdAssetSelector(selector)) continue;
+
+    for (const item of domSummary) {
+      if (
+        item.selector !== selector &&
+        isLikelyAdSelector(item.selector, item) &&
+        (item.iframeCount ?? 0) > 0
+      ) {
+        expandedSelectors.add(item.selector);
+      }
+    }
+  }
+
+  return Array.from(expandedSelectors);
+}
+
+function isInnerAdAssetSelector(selector: string) {
+  return /iframe|img|carousel_item_iframe/i.test(selector);
+}
+
+function isUnsafeRestyleSelector(selector: string, declarations: string) {
+  if (!/(display\s*:\s*(grid|flex)|grid-template|width\s*:|flex\s*:)/i.test(declarations)) {
+    return false;
+  }
+
+  return /carousel|swiper|home-project-cont|el-carousel/i.test(selector);
+}
+
+function normalizeNestedCardChrome(selectors: string[], declarations: string, chromeSelectors: string[]) {
+  if (!declarationsApplyCardChrome(declarations)) {
+    return declarations;
+  }
+
+  const hasNestedConflict = selectors.some((selector) => (
+    chromeSelectors.some((chromeSelector) => selectorsAreNested(selector, chromeSelector))
+  ));
+  const nextDeclarations = hasNestedConflict ? removeCardChromeDeclarations(declarations) : declarations;
+
+  if (declarationsApplyCardChrome(nextDeclarations)) {
+    chromeSelectors.push(...selectors);
+  }
+
+  return nextDeclarations;
+}
+
+function declarationsApplyCardChrome(declarations: string) {
+  return /(^|;)\s*(box-shadow|border-radius|border(?:-[a-z-]+)?|outline(?:-[a-z-]+)?)\s*:/i.test(declarations);
+}
+
+function removeCardChromeDeclarations(declarations: string) {
+  return declarations
+    .split(';')
+    .map((declaration) => declaration.trim())
+    .filter(Boolean)
+    .filter((declaration) => !/^(box-shadow|border-radius|border(?:-[a-z-]+)?|outline(?:-[a-z-]+)?)\s*:/i.test(declaration))
+    .join('; ');
+}
+
+function selectorsAreNested(selector: string, otherSelector: string) {
+  return (
+    selector.startsWith(`${otherSelector} `) ||
+    selector.startsWith(`${otherSelector} >`) ||
+    otherSelector.startsWith(`${selector} `) ||
+    otherSelector.startsWith(`${selector} >`)
+  );
+}
+
+function declarationsHideElement(declarations: string) {
+  return /display\s*:\s*none\s*!?\s*important?/i.test(declarations);
+}
+
+function splitSelectorList(selectorText: string) {
+  return selectorText
+    .split(',')
+    .map((selector) => selector.trim())
+    .filter(Boolean);
+}
+
+function isUnsafeHideSelector(selector: string, domSummary: DomSummaryItem[], protectedTerms: string[]) {
+  const normalizedSelector = selector.trim();
+  const bareTagSelectors = new Set([
+    '*',
+    'html',
+    'body',
+    'main',
+    'article',
+    'section',
+    'div',
+    'aside',
+    'header',
+    'footer',
+    'nav',
+    'iframe',
+    'img',
+    'a',
+    'button',
+    'input',
+  ]);
+
+  if (bareTagSelectors.has(normalizedSelector.toLowerCase())) {
+    return true;
+  }
+
+  if (/#app\b|#root\b|home-content|home_box_left|layout-content/i.test(normalizedSelector)) {
+    return true;
+  }
+
+  const matchedSummary = domSummary.find((item) => item.selector === normalizedSelector);
+  if (!matchedSummary) {
+    return isLikelyLayoutSelector(normalizedSelector) && !isLikelyAdSelector(normalizedSelector);
+  }
+
+  if (isLikelyAdSelector(normalizedSelector, matchedSummary)) {
+    return false;
+  }
+
+  if (isLargeContainer(matchedSummary) && !isLikelyAdSelector(normalizedSelector, matchedSummary)) {
+    return true;
+  }
+
+  return protectedTerms.some((term) => matchedSummary.text.includes(term));
+}
+
+function isLikelyLayoutSelector(selector: string) {
+  return /layout|content|container|wrapper|box|main|page|root/i.test(selector);
+}
+
+function isLikelyAdSelector(selector: string, item?: DomSummaryItem) {
+  const text = `${selector} ${item?.id ?? ''} ${item?.className ?? ''} ${item?.text ?? ''}`.toLowerCase();
+  return /(^|[-_\s.#])(ad|ads|advert|banner|promotion|sponsor|kp_box|carousel_item_iframe)([-_\s.#]|\d|$)/i.test(text);
+}
+
+function isLargeContainer(item: DomSummaryItem) {
+  const viewportArea = 1920 * 1080;
+  const itemArea = item.rect.width * item.rect.height;
+
+  return (
+    itemArea > viewportArea * 0.28 ||
+    (item.childElementCount ?? 0) > 24 ||
+    (item.linkCount ?? 0) > 18
+  );
+}
+
+function getProtectedTerms(instruction: string) {
+  const fixedTerms = ['开源项目', '精选博客', '社区推荐', '正文', '搜索框', '搜索按钮'];
+  const protectedTerms = new Set<string>();
+
+  for (const term of fixedTerms) {
+    if (instruction.includes(term)) {
+      protectedTerms.add(term);
+    }
+  }
+
+  const keepText = instruction.match(/(?:保留|只保留|仅保留)([^。；;]+)/)?.[1] ?? '';
+  for (const term of keepText.split(/[、，,和与及\s]+/)) {
+    const normalizedTerm = term.trim();
+    if (normalizedTerm.length >= 2 && normalizedTerm.length <= 12) {
+      protectedTerms.add(normalizedTerm);
+    }
+  }
+
+  return Array.from(protectedTerms);
 }
 
 function createFallbackResult(explanation: string, debug: AiDebugLog): GenerateCssResult {
@@ -407,6 +677,14 @@ function createFallbackResult(explanation: string, debug: AiDebugLog): GenerateC
       usedFallback: true,
     },
   };
+}
+
+function getEmptyResponseExplanation(responseSnapshot: string) {
+  if (responseSnapshot.includes('"reasoning_content"')) {
+    return 'AI spent the output budget on reasoning and returned no final JSON content. Applied the built-in fallback rule.';
+  }
+
+  return 'AI returned an empty response. Applied the built-in fallback rule.';
 }
 
 function parseJsonObject(raw: string): unknown {
@@ -440,6 +718,87 @@ function extractJsonObject(raw: string) {
 function fallbackSmartHideCss(context: SelectedElementContext): string {
   const selector = context.recommendedTarget?.selector ?? context.selected.selector;
   return `${selector} {\n  display: none !important;\n}`;
+}
+
+function sanitizeSelectedElementCss(
+  css: string,
+  context: SelectedElementContext,
+  options: { allowHide: boolean },
+) {
+  if (!css.trim()) return '';
+
+  const selectedSelectors = new Set([
+    context.selected.selector,
+    context.recommendedTarget?.selector,
+    ...context.ancestors
+      .filter((ancestor) => isSafeSelectedAncestor(ancestor))
+      .map((ancestor) => ancestor.selector),
+  ].filter((selector): selector is string => Boolean(selector)));
+  const rules: string[] = [];
+  const chromeSelectors: string[] = [];
+  const rulePattern = /([^{}]+)\{([^{}]*)\}/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = rulePattern.exec(css)) !== null) {
+    const selectorText = match[1].trim();
+    const declarations = match[2].trim();
+    if (!options.allowHide && declarationsHideElement(declarations)) continue;
+
+    const selectors = splitSelectorList(selectorText).filter((selector) => (
+      isScopedToSelectedElement(selector, selectedSelectors)
+    ));
+    if (!declarations) continue;
+
+    if (selectors.length > 0) {
+      const nextDeclarations = normalizeNestedCardChrome(selectors, declarations, chromeSelectors);
+      if (nextDeclarations) {
+        rules.push(`${selectors.join(', ')} { ${nextDeclarations} }`);
+      }
+      continue;
+    }
+
+    if (!options.allowHide) {
+      const fallbackSelector = getSelectedElementSelector(context);
+      const nextDeclarations = normalizeNestedCardChrome([fallbackSelector], declarations, chromeSelectors);
+      if (nextDeclarations) {
+        rules.push(`${fallbackSelector} { ${nextDeclarations} }`);
+      }
+    }
+  }
+
+  return rules.join('\n\n').trim();
+}
+
+function isScopedToSelectedElement(selector: string, selectedSelectors: Set<string>) {
+  for (const selectedSelector of selectedSelectors) {
+    if (selector === selectedSelector) return true;
+    if (selector.startsWith(`${selectedSelector}:`)) return true;
+    if (selector.startsWith(`${selectedSelector}[`)) return true;
+    if (selector.startsWith(`${selectedSelector} `)) return true;
+    if (selector.startsWith(`${selectedSelector} >`)) return true;
+    if (selector.startsWith(`${selectedSelector} +`)) return true;
+    if (selector.startsWith(`${selectedSelector} ~`)) return true;
+  }
+
+  return false;
+}
+
+function getSelectedElementSelector(context: SelectedElementContext) {
+  return context.recommendedTarget?.selector ?? context.selected.selector;
+}
+
+function isSafeSelectedAncestor(ancestor: ElementContextItem) {
+  return (
+    ancestor.tag !== 'main' &&
+    ancestor.tag !== 'article' &&
+    (ancestor.areaRatio ?? 0) <= 0.7 &&
+    (ancestor.linkCount ?? 0) <= 16 &&
+    (ancestor.buttonCount ?? 0) <= 8
+  );
+}
+
+function hasExplicitHideIntent(instruction: string) {
+  return /hide|remove|delete|discard|隐藏|移除|删除|去掉|删掉/.test(instruction);
 }
 
 function formatSelectedElementContext(context: SelectedElementContext): string {

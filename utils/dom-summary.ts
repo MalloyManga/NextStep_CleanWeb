@@ -1,6 +1,6 @@
 import type { DomSummaryItem, ElementContextItem, SelectedElementContext } from '../types/cleanweb';
 
-const MAX_ITEMS = 80;
+const MAX_ITEMS = 120;
 const TEXT_LIMIT = 80;
 const MIN_AREA = 900;
 
@@ -46,6 +46,12 @@ function toSummaryItem(element: HTMLElement): DomSummaryItem | null {
       height: Math.round(rect.height),
     },
     visible: true,
+    childElementCount: element.children.length,
+    imageCount: element.querySelectorAll('img').length,
+    iframeCount: element.querySelectorAll('iframe').length,
+    linkCount: element.querySelectorAll('a').length,
+    inputCount: element.querySelectorAll('input, textarea, select').length,
+    buttonCount: element.querySelectorAll('button, [role="button"]').length,
   };
 }
 

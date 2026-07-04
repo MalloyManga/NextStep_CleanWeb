@@ -15,6 +15,12 @@ export interface DomSummaryItem {
   text: string;
   rect: DomSummaryRect;
   visible: boolean;
+  childElementCount?: number;
+  imageCount?: number;
+  iframeCount?: number;
+  linkCount?: number;
+  inputCount?: number;
+  buttonCount?: number;
 }
 
 export interface ElementContextItem extends DomSummaryItem {

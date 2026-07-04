@@ -20,5 +20,20 @@ export default defineConfig({
     description: 'Use natural language to clean noisy web pages.',
     permissions: ['activeTab', 'storage', 'scripting'],
     host_permissions: ['<all_urls>'],
+    // Enable after logo files are added to public/icon:
+    // icons: {
+    //   16: 'icon/16.png',
+    //   32: 'icon/32.png',
+    //   48: 'icon/48.png',
+    //   128: 'icon/128.png',
+    // },
+    // action: {
+    //   default_icon: {
+    //     16: 'icon/16.png',
+    //     32: 'icon/32.png',
+    //     48: 'icon/48.png',
+    //     128: 'icon/128.png',
+    //   },
+    // },
   },
 });

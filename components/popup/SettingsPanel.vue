@@ -77,6 +77,7 @@ function updateField(settings: LlmSettings, field: keyof LlmSettings, value: str
         <option value="gpt-4o"></option>
         <option value="gpt-4.1-mini"></option>
         <option value="gpt-3.5-turbo"></option>
+        <option value="deepseek-v4-flash"></option>
         <option value="deepseek-chat"></option>
         <option value="claude-3-5-sonnet-20241022"></option>
       </datalist>
