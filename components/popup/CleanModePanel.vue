@@ -23,6 +23,8 @@ const showCss = ref(false)
 const hasText = computed(() => props.instruction.trim().length > 0)
 const showStop = computed(() => props.isBusy && !hasText.value)
 const canSend = computed(() => hasText.value && !props.isBusy)
+const hasGeneratedCss = computed(() => props.generatedCss.trim().length > 0)
+const sendLabel = computed(() => (hasGeneratedCss.value ? '重新生成并覆盖' : '发送'))
 
 function onInstructionInput(event: Event) {
   emit('update:instruction', (event.target as HTMLTextAreaElement).value)
@@ -60,7 +62,7 @@ function onKeydown(event: KeyboardEvent) {
         <button type="button" :disabled="!canSend"
           class="absolute bottom-2 right-2 flex h-7 w-7 items-center justify-center rounded-full transition"
           :class="canSend || showStop ? 'bg-brand text-white hover:bg-brand-dark' : 'cursor-not-allowed bg-brand-tint text-muted'"
-          :title="showStop ? '生成中' : (canSend ? '发送' : '输入指令后发送')" :aria-label="showStop ? '生成中' : '发送'"
+          :title="showStop ? '生成中' : (canSend ? sendLabel : '输入指令后发送')" :aria-label="showStop ? '生成中' : sendLabel"
           @click="canSend ? emit('analyze') : undefined">
           <StopIcon v-if="showStop" class="h-3 w-3" />
           <SendIcon v-else class="h-4 w-4" />
@@ -74,8 +76,13 @@ function onKeydown(event: KeyboardEvent) {
       <span>{{ generatedCss ? "查看 / 编辑生成的 CSS" : "尚无生成结果" }}</span>
     </button>
 
-    <textarea v-if="showCss" :value="generatedCss" rows="7" placeholder="/* 点击发送后将在此显示生成的 CSS */"
-      class="w-full resize-y rounded-lg border border-line bg-code p-3 font-mono text-xs leading-relaxed text-code-text outline-none transition focus:border-brand"
+    <p v-if="hasGeneratedCss" class="m-0 text-xs leading-relaxed text-muted">
+      再次发送会覆盖当前预览，并用新规则更新页面。
+    </p>
+
+    <textarea v-if="showCss" :value="generatedCss" rows="7" wrap="soft" spellcheck="false"
+      placeholder="/* 点击发送后将在此显示生成的 CSS */"
+      class="block w-full max-w-full resize-y overflow-x-hidden whitespace-pre-wrap break-all rounded-lg border border-line bg-code p-3 font-mono text-xs leading-relaxed text-code-text outline-none transition focus:border-brand"
       @input="$emit('update:generatedCss', ($event.target as HTMLTextAreaElement).value)" />
   </div>
 </template>

@@ -267,7 +267,7 @@ function startElementPicker() {
 
   // 按钮行
   const actions = document.createElement('div');
-  actions.style.cssText = 'display:flex;gap:6px';
+  actions.style.cssText = 'display:flex;gap:6px;flex-wrap:nowrap';
 
   const hideButton = createPickerButton('智能隐藏', createTrashIcon(), true);
   hideButton.addEventListener('click', handleHideSelectedElement);
@@ -463,12 +463,15 @@ function createPickerButton(label: string, icon: SVGElement, primary: boolean) {
     'align-items: center',
     'justify-content: center',
     'gap: 4px',
-    'flex: 1',
+    'flex: 0 0 auto',
+    'min-width: 88px',
     'height: 30px',
+    'padding: 0 10px',
     'border: 0',
     'border-radius: 8px',
     'font-size: 12px',
     'font-weight: 600',
+    'line-height: 1',
     'white-space: nowrap',
     'cursor: pointer',
     primary ? 'color: #ffffff' : 'color: #1f2a2e',
@@ -477,6 +480,7 @@ function createPickerButton(label: string, icon: SVGElement, primary: boolean) {
 
   const span = document.createElement('span');
   span.textContent = label;
+  span.style.cssText = 'white-space:nowrap;word-break:keep-all';
   button.append(icon, span);
   return button;
 }
