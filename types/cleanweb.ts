@@ -17,6 +17,46 @@ export interface DomSummaryItem {
   visible: boolean;
 }
 
+export interface ElementContextItem extends DomSummaryItem {
+  depth: number;
+}
+
+export interface SelectedElementContext {
+  selected: ElementContextItem;
+  recommendedTarget?: ElementContextItem;
+  ancestors: ElementContextItem[];
+  siblings: ElementContextItem[];
+}
+
+export type ElementActionType = 'smart-hide' | 'ai-modify';
+
+export interface SmartHideRequest {
+  action: 'smart-hide';
+  context: SelectedElementContext;
+}
+
+export interface SmartHideResult {
+  action: 'smart-hide';
+  selector: string;
+  css: string;
+  explanation: string;
+}
+
+export interface AiModifyRequest {
+  action: 'ai-modify';
+  instruction: string;
+  context: SelectedElementContext;
+}
+
+export interface AiModifyResult {
+  action: 'ai-modify';
+  css: string;
+  explanation: string;
+}
+
+export type ElementActionRequest = SmartHideRequest | AiModifyRequest;
+export type ElementActionResult = SmartHideResult | AiModifyResult;
+
 export interface CleanWebRule {
   css: string;
   instruction: string;

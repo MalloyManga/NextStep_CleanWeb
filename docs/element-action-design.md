@@ -63,6 +63,47 @@ display: none;
 每一层的可见文本前 80 字
 ```
 
+公共类型定义在：
+
+```text
+types/cleanweb.ts
+```
+
+核心接口：
+
+```ts
+export interface SelectedElementContext {
+  selected: ElementContextItem;
+  recommendedTarget?: ElementContextItem;
+  ancestors: ElementContextItem[];
+  siblings: ElementContextItem[];
+}
+
+export interface SmartHideRequest {
+  action: 'smart-hide';
+  context: SelectedElementContext;
+}
+
+export interface SmartHideResult {
+  action: 'smart-hide';
+  selector: string;
+  css: string;
+  explanation: string;
+}
+
+export interface AiModifyRequest {
+  action: 'ai-modify';
+  instruction: string;
+  context: SelectedElementContext;
+}
+
+export interface AiModifyResult {
+  action: 'ai-modify';
+  css: string;
+  explanation: string;
+}
+```
+
 ### 第一版启发式
 
 AI 未接入前，可以先用启发式判断目标：
@@ -233,4 +274,3 @@ AI 修改：开放式，适合用户描述局部改造意图
 ```text
 选择元素 -> 智能隐藏 -> 保存 -> 刷新后仍生效 -> 恢复
 ```
-
