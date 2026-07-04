@@ -71,7 +71,6 @@ async function resolveConfig(settings?: LlmSettings): Promise<LlmSettings> {
     fromStorage?.model
   ) ? fromStorage : defaults;
 
-  console.log(result);
   return {
     apiKey: result.apiKey.trim(),
     baseUrl: result.baseUrl.trim(),

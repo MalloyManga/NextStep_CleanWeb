@@ -1,1 +1,1 @@
-export type WorkMode = 'clean' | 'select' | 'settings';
+export type WorkMode = 'clean' | 'select' | 'rules' | 'settings';

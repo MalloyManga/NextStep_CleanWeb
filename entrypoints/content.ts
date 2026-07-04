@@ -6,9 +6,11 @@ import type {
   CleanWebMessage,
   CleanWebResponse,
   DomSummaryItem,
+  GeneratedRuleDraft,
   SmartHideMessage,
   SmartHideResult,
 } from '../types/cleanweb';
+import { formatCssForPreview } from '../utils/css-format';
 import { buildReadableSelector, collectDomSummary, collectElementContext, toElementContextItem } from '../utils/dom-summary';
 import { getHostname, getRule, removeRule, saveRule } from '../utils/storage';
 
@@ -114,10 +116,20 @@ async function handleApplyRule(message: ApplyRuleMessage): Promise<CleanWebRespo
     console.info('[CleanWeb][Apply] removed injected CSS', {
       hostname: getHostname(),
       save: message.save,
+      draftCount: message.drafts?.length ?? 0,
     });
 
     if (message.save) {
-      await removeRule(getHostname());
+      if (message.drafts?.length) {
+        await saveRule(getHostname(), {
+          css: '',
+          instruction: message.instruction,
+          updatedAt: Date.now(),
+          drafts: message.drafts,
+        });
+      } else {
+        await removeRule(getHostname());
+      }
       clearRuleMarker(getHostname());
     }
 
@@ -587,14 +599,21 @@ async function handleHideSelectedElement(event: MouseEvent) {
 
     const hostname = getHostname();
     const existingRule = await getRule(hostname);
-    const nextCss = appendCssRule(existingRule?.css, result.css);
+    const draft = createElementRuleDraft({
+      css: result.css,
+      explanation: result.explanation,
+      instruction: `隐藏 ${result.selector}`,
+      source: 'smart-hide',
+    });
+    const nextDrafts = addRuleDraft(existingRule, draft);
+    const nextCss = getEnabledDraftCss(nextDrafts);
 
     injectCss(nextCss);
     await saveRule(hostname, {
       css: nextCss,
-      instruction: appendInstruction(existingRule?.instruction, `隐藏 ${result.selector}：${result.explanation}`),
+      instruction: getEnabledDraftInstruction(nextDrafts),
       updatedAt: Date.now(),
-      drafts: existingRule?.drafts,
+      drafts: nextDrafts,
     });
     markRuleSaved(hostname);
 
@@ -821,13 +840,21 @@ function createAiPanelContent() {
 
       const hostname = getHostname();
       const existingRule = await getRule(hostname);
-      const nextCss = appendCssRule(existingRule?.css, result.css);
+      const draft = createElementRuleDraft({
+        css: result.css,
+        explanation: result.explanation,
+        instruction,
+        source: 'ai-modify',
+      });
+      const nextDrafts = addRuleDraft(existingRule, draft);
+      const nextCss = getEnabledDraftCss(nextDrafts);
 
       injectCss(nextCss);
       await saveRule(hostname, {
         css: nextCss,
-        instruction: appendInstruction(existingRule?.instruction, `${instruction}：${result.explanation}`),
+        instruction: getEnabledDraftInstruction(nextDrafts),
         updatedAt: Date.now(),
+        drafts: nextDrafts,
       });
       markRuleSaved(hostname);
 
@@ -967,20 +994,53 @@ function isCleanWebControlElement(element: HTMLElement) {
   return Boolean(element.closest(`#${PICKER_TOOLBAR_ID}`));
 }
 
-function appendCssRule(currentCss: string | undefined, nextRule: string) {
-  if (!currentCss?.trim()) {
-    return nextRule;
-  }
-
-  return `${currentCss.trim()}\n\n${nextRule}`;
+function createElementRuleDraft(input: Omit<GeneratedRuleDraft, 'id' | 'enabled' | 'createdAt'>): GeneratedRuleDraft {
+  return {
+    ...input,
+    id: `${Date.now()}-${crypto.getRandomValues(new Uint32Array(1))[0].toString(36)}`,
+    css: formatCssForPreview(input.css),
+    enabled: true,
+    createdAt: Date.now(),
+  };
 }
 
-function appendInstruction(currentInstruction: string | undefined, nextInstruction: string) {
-  if (!currentInstruction?.trim()) {
-    return nextInstruction;
+function addRuleDraft(rule: Awaited<ReturnType<typeof getRule>>, draft: GeneratedRuleDraft) {
+  return [draft, ...getExistingRuleDrafts(rule)].slice(0, 20);
+}
+
+function getExistingRuleDrafts(rule: Awaited<ReturnType<typeof getRule>>): GeneratedRuleDraft[] {
+  if (!rule) return [];
+  if (rule.drafts?.length) return rule.drafts;
+  if (!rule.css.trim()) return [];
+
+  return [{
+    id: `legacy-${rule.updatedAt}`,
+    instruction: rule.instruction || '历史规则',
+    css: rule.css,
+    explanation: '从旧版保存规则迁移显示',
+    enabled: true,
+    createdAt: rule.updatedAt,
+    source: 'legacy',
+  }];
+}
+
+function getEnabledDraftCss(drafts: GeneratedRuleDraft[]) {
+  return drafts
+    .filter((draft) => draft.enabled)
+    .slice()
+    .reverse()
+    .map((draft) => draft.css)
+    .join('\n\n');
+}
+
+function getEnabledDraftInstruction(drafts: GeneratedRuleDraft[]) {
+  const enabledDrafts = drafts.filter((draft) => draft.enabled);
+
+  if (enabledDrafts.length === 1) {
+    return enabledDrafts[0].instruction;
   }
 
-  return `${currentInstruction.trim()}；${nextInstruction}`;
+  return `已启用 ${enabledDrafts.length} 条规则`;
 }
 
 export { buildReadableSelector, collectDomSummary };

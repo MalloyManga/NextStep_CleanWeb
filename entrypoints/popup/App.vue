@@ -5,6 +5,7 @@ import { storage } from 'wxt/utils/storage'
 import CleanModePanel from '../../components/popup/CleanModePanel.vue'
 import ModeTabs from '../../components/popup/ModeTabs.vue'
 import PopupHeader from '../../components/popup/PopupHeader.vue'
+import RulesPanel from '../../components/popup/RulesPanel.vue'
 import SelectModePanel from '../../components/popup/SelectModePanel.vue'
 import SettingsPanel from '../../components/popup/SettingsPanel.vue'
 import StatusBar from '../../components/popup/StatusBar.vue'
@@ -125,16 +126,17 @@ async function loadSavedRuleState() {
   }
 
   const rule = await getRule(currentHostname.value)
-  hasSavedRule.value = Boolean(rule?.css.trim())
+  hasSavedRule.value = Boolean(rule?.css.trim() || rule?.drafts?.length)
 
-  if (!rule?.drafts?.length) {
+  if (!rule?.drafts?.length && !rule?.css.trim()) {
     return
   }
 
-  generatedRuleDrafts.value = rule.drafts
-  selectedDraftId.value = rule.drafts[0]?.id ?? null
-  generatedCss.value = rule.drafts[0]?.css ?? ''
-  hasGenerated.value = rule.drafts.length > 0
+  const drafts = rule.drafts?.length ? rule.drafts : [createLegacyRuleDraft(rule.css, rule.instruction, rule.updatedAt)]
+  generatedRuleDrafts.value = drafts
+  selectedDraftId.value = drafts[0]?.id ?? null
+  generatedCss.value = drafts[0]?.css ?? ''
+  hasGenerated.value = drafts.length > 0
 }
 
 async function getSavedMode() {
@@ -143,7 +145,7 @@ async function getSavedMode() {
 }
 
 function isWorkMode(value: unknown): value is WorkMode {
-  return value === 'clean' || value === 'select' || value === 'settings'
+  return value === 'clean' || value === 'select' || value === 'rules' || value === 'settings'
 }
 
 async function getSavedLlmSettings(): Promise<LlmSettings> {
@@ -296,7 +298,8 @@ async function applyEnabledDrafts() {
     drafts: generatedRuleDrafts.value,
   })
 
-  hasSavedRule.value = css.trim().length > 0
+  hasSavedRule.value = css.trim().length > 0 || generatedRuleDrafts.value.length > 0
+  hasGenerated.value = generatedRuleDrafts.value.length > 0
 }
 
 async function restoreGenerationState() {
@@ -400,6 +403,29 @@ async function toggleRuleDraft(id: string, enabled: boolean) {
   }
 }
 
+async function deleteRuleDraft(id: string) {
+  const deletedDraft = generatedRuleDrafts.value.find((draft) => draft.id === id)
+  generatedRuleDrafts.value = generatedRuleDrafts.value.filter((draft) => draft.id !== id)
+
+  if (selectedDraftId.value === id) {
+    const nextSelectedDraft = generatedRuleDrafts.value[0] ?? null
+    selectedDraftId.value = nextSelectedDraft?.id ?? null
+    generatedCss.value = nextSelectedDraft?.css ?? ''
+  }
+
+  isBusy.value = true
+  status.value = '正在删除这条规则'
+
+  try {
+    await applyEnabledDrafts()
+    status.value = deletedDraft ? `已删除：${getStatusPreview(deletedDraft.instruction || '未命名规则')}` : '规则已删除'
+  } catch (error) {
+    status.value = error instanceof Error ? error.message : '删除规则失败'
+  } finally {
+    isBusy.value = false
+  }
+}
+
 async function commitGeneratedCss() {
   if (!selectedDraftId.value) return
 
@@ -446,6 +472,18 @@ function formatAiDebugLog(debug: AiDebugLog) {
   }, null, 2)
 }
 
+function createLegacyRuleDraft(css: string, instruction: string, updatedAt: number): GeneratedRuleDraft {
+  return {
+    id: `legacy-${updatedAt}`,
+    instruction: instruction || '历史规则',
+    css,
+    explanation: '从旧版保存规则迁移显示',
+    enabled: css.trim().length > 0,
+    createdAt: updatedAt,
+    source: 'legacy',
+  }
+}
+
 async function startElementPicker() {
   isBusy.value = true
   status.value = '请在网页中选择一个元素'
@@ -488,7 +526,12 @@ async function startElementPicker() {
           @select-rule-draft="selectRuleDraft" @toggle-rule-draft="toggleRuleDraft"
           @commit-generated-css="commitGeneratedCss" @analyze="collectDomSummary" @cancel="cancelGeneration"
           @go-settings="mode = 'settings'" />
-        <SelectModePanel v-else :is-busy="isBusy" :has-saved-rule="hasSavedRule" @start-picker="prepareElementPicker" />
+        <SelectModePanel v-else-if="mode === 'select'" :is-busy="isBusy" :has-saved-rule="hasSavedRule" @start-picker="prepareElementPicker" />
+        <RulesPanel v-else :generated-css="generatedCss" :ai-debug-text="selectedAiDebugText"
+          :rule-drafts="generatedRuleDrafts" :selected-draft-id="selectedDraftId" :is-busy="isBusy"
+          @update:generated-css="updateGeneratedCss" @select-rule-draft="selectRuleDraft"
+          @toggle-rule-draft="toggleRuleDraft" @delete-rule-draft="deleteRuleDraft"
+          @commit-generated-css="commitGeneratedCss" />
       </template>
 
       <StatusBar :status="status" :is-busy="isBusy" @reset="resetPage" />

@@ -65,7 +65,7 @@ export interface CleanWebRule {
   drafts?: GeneratedRuleDraft[];
 }
 
-export type GeneratedRuleSource = 'full-page' | 'element-picker' | 'fallback';
+export type GeneratedRuleSource = 'full-page' | 'smart-hide' | 'ai-modify' | 'element-picker' | 'fallback' | 'legacy';
 
 export interface AiDebugLog {
   instruction: string;
