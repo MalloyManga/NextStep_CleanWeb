@@ -60,13 +60,23 @@ export function getDefaultLlmConfig(): LlmSettings {
 
 async function resolveConfig(settings?: LlmSettings): Promise<LlmSettings> {
   const defaults = getDefaultLlmConfig();
-  const stored = await getLlmSettings();
+  const fromStorage = await getLlmSettings();
+  const result = (
+    settings?.apiKey &&
+    settings?.baseUrl &&
+    settings?.model
+  ) ? settings : (
+    fromStorage?.apiKey &&
+    fromStorage?.baseUrl &&
+    fromStorage?.model
+  ) ? fromStorage : defaults;
 
+  console.log(result);
   return {
-    apiKey: (settings?.apiKey || stored?.apiKey || defaults.apiKey).trim(),
-    baseUrl: (settings?.baseUrl || stored?.baseUrl || defaults.baseUrl).trim(),
-    model: (settings?.model || stored?.model || defaults.model || 'gpt-4o-mini').trim(),
-  };
+    apiKey: result.apiKey.trim(),
+    baseUrl: result.baseUrl.trim(),
+    model: result.model.trim(),
+  }
 }
 
 function createClient(config: LlmSettings) {
