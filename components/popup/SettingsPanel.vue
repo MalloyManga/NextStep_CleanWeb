@@ -61,7 +61,7 @@ function updateField(settings: LlmSettings, field: keyof LlmSettings, value: str
 
       <label class="grid gap-1.5">
         <span class="text-xs font-semibold text-ink-soft">Base URL</span>
-        <input :value="settings.baseUrl" type="url" spellcheck="false" placeholder="https://api.openai.com/v1"
+        <input :value="settings.baseUrl" type="url" spellcheck="false" placeholder="https://example.com/v1"
           class="h-9 w-full rounded-lg border border-line bg-white px-3 text-sm text-ink outline-none transition focus:border-brand focus:ring-2 focus:ring-brand-soft"
           @input="$emit('update:settings', updateField(settings, 'baseUrl', ($event.target as HTMLInputElement).value))" />
       </label>

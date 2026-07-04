@@ -32,7 +32,7 @@ const mode = ref<WorkMode>('clean')
 const ready = ref(false)
 const llmSettings = ref<LlmSettings>({
   apiKey: '',
-  baseUrl: 'https://api.openai.com/v1',
+  baseUrl: '',
   model: 'gpt-4o-mini',
 })
 
@@ -96,7 +96,7 @@ async function getSavedLlmSettings(): Promise<LlmSettings> {
 
   return {
     apiKey: saved?.apiKey ?? '',
-    baseUrl: saved?.baseUrl || 'https://api.openai.com/v1',
+    baseUrl: saved?.baseUrl || '',
     model: saved?.model || 'gpt-4o-mini',
   }
 }
@@ -108,7 +108,7 @@ async function saveSettings() {
   try {
     await saveLlmSettings({
       apiKey: llmSettings.value.apiKey.trim(),
-      baseUrl: llmSettings.value.baseUrl.trim() || 'https://api.openai.com/v1',
+      baseUrl: llmSettings.value.baseUrl.trim(),
       model: llmSettings.value.model.trim() || 'gpt-4o-mini',
     })
     status.value = 'AI 设置已保存'

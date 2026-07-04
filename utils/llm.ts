@@ -74,7 +74,7 @@ async function resolveLlmSettings(): Promise<LlmSettings> {
 
   return {
     apiKey: saved?.apiKey || import.meta.env.WXT_LLM_API_KEY || '',
-    baseUrl: saved?.baseUrl || import.meta.env.WXT_LLM_BASE_URL || 'https://api.openai.com/v1',
+    baseUrl: saved?.baseUrl || import.meta.env.WXT_LLM_BASE_URL || '',
     model: saved?.model || import.meta.env.WXT_LLM_MODEL || 'gpt-4o-mini',
   };
 }
@@ -83,6 +83,10 @@ async function requestChatCompletion(
   settings: LlmSettings,
   messages: ChatMessage[],
 ): Promise<ChatCompletionResponse> {
+  if (!settings.baseUrl.trim()) {
+    return createFallbackPayload('未配置 Base URL，已使用 fallback 规则。');
+  }
+
   const endpoint = normalizeChatCompletionEndpoint(settings.baseUrl);
   const baseBody: ChatCompletionRequest = {
     model: settings.model.trim() || 'gpt-4o-mini',
@@ -195,7 +199,7 @@ function createFallbackResult(explanation: string): GenerateCssResult {
 }
 
 function normalizeChatCompletionEndpoint(baseUrl: string) {
-  const trimmed = trimTrailingSlash(baseUrl.trim() || 'https://api.openai.com/v1');
+  const trimmed = trimTrailingSlash(baseUrl.trim());
   if (/\/chat\/completions$/i.test(trimmed)) {
     return trimmed;
   }
