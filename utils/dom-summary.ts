@@ -3,6 +3,7 @@ import type { DomSummaryItem, ElementContextItem, SelectedElementContext } from 
 const MAX_ITEMS = 120;
 const TEXT_LIMIT = 80;
 const MIN_AREA = 900;
+const DEFAULT_DESCENDANT_COUNT = 12;
 
 export function collectDomSummary(): DomSummaryItem[] {
   const elements = Array.from(document.querySelectorAll('body *')).filter(
@@ -119,9 +120,13 @@ export function toElementContextItem(element: HTMLElement, depth = 0): ElementCo
 
 export function collectElementContext(
   element: HTMLElement,
-  options: { ancestorDepth?: number; siblingCount?: number } = {},
+  options: { ancestorDepth?: number; siblingCount?: number; descendantCount?: number } = {},
 ): SelectedElementContext {
-  const { ancestorDepth = 4, siblingCount = 4 } = options;
+  const {
+    ancestorDepth = 4,
+    siblingCount = 4,
+    descendantCount = DEFAULT_DESCENDANT_COUNT,
+  } = options;
 
   const selected = toElementContextItem(element, 0);
   const ancestors: ElementContextItem[] = [];
@@ -144,9 +149,66 @@ export function collectElementContext(
     }
   }
 
+  const descendants = collectVisibleDescendants(element, descendantCount);
+
   return {
     selected,
     ancestors,
     siblings,
+    descendants,
   };
+}
+
+function collectVisibleDescendants(element: HTMLElement, limit: number): ElementContextItem[] {
+  if (limit <= 0) return [];
+
+  return Array.from(element.querySelectorAll('*'))
+    .filter((child): child is HTMLElement => child instanceof HTMLElement)
+    .map((child) => toDescendantContextItem(element, child))
+    .filter((item): item is ElementContextItem => Boolean(item))
+    .sort((a, b) => getElementContextScore(b) - getElementContextScore(a))
+    .slice(0, limit);
+}
+
+function toDescendantContextItem(root: HTMLElement, child: HTMLElement): ElementContextItem | null {
+  const style = window.getComputedStyle(child);
+  if (
+    style.display === 'none' ||
+    style.visibility === 'hidden' ||
+    Number(style.opacity) === 0
+  ) {
+    return null;
+  }
+
+  const item = toElementContextItem(child, getDescendantDepth(root, child));
+  if (
+    !item.visible ||
+    item.rect.width * item.rect.height < MIN_AREA ||
+    item.selector === buildReadableSelector(root)
+  ) {
+    return null;
+  }
+
+  return item;
+}
+
+function getDescendantDepth(root: HTMLElement, child: HTMLElement): number {
+  let depth = 0;
+  let current: HTMLElement | null = child;
+
+  while (current && current !== root) {
+    depth += 1;
+    current = current.parentElement;
+  }
+
+  return depth;
+}
+
+function getElementContextScore(item: ElementContextItem) {
+  const area = item.rect.width * item.rect.height;
+  const textScore = item.text.length > 0 ? 12000 : 0;
+  const semanticScore = item.id || item.role || item.ariaLabel ? 8000 : 0;
+  const interactiveScore = (item.linkCount ?? 0) + (item.buttonCount ?? 0) + (item.inputCount ?? 0);
+
+  return area + textScore + semanticScore + interactiveScore * 1200;
 }

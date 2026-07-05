@@ -33,6 +33,7 @@ export interface SelectedElementContext {
   recommendedTarget?: ElementContextItem;
   ancestors: ElementContextItem[];
   siblings: ElementContextItem[];
+  descendants?: ElementContextItem[];
 }
 
 export type ElementActionType = 'smart-hide' | 'ai-modify';

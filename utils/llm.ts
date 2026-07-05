@@ -341,9 +341,11 @@ export async function generateAiModifyRule(request: AiModifyRequest): Promise<Ai
 
 Rules:
 - Return a strict JSON object with fields: "css", "explanation".
-- Only affect the selected element or its reasonable parent container.
+- Only affect the selected element, a reasonable parent container, or listed descendants inside the selected element.
 - Prefer visible improvements: spacing, size, border-radius, color, contrast, shadow, typography, and focus states.
 - Do not hide/remove content unless the user's instruction explicitly says hide, remove, delete, or discard.
+- If the user asks to keep only one internal section, hide sibling descendants inside the selected element instead of styling only the selected wrapper.
+- Never hide the selected wrapper when the user asks to keep something inside it.
 - Do not generate JavaScript, HTML, or remote resources.
 - Use !important when necessary to override existing styles.
 - Keep the CSS scoped and safe.
@@ -367,7 +369,10 @@ Rules:
   try {
     const parsed = parseJsonObject(completion.raw) as Partial<AiModifyResult>;
     const allowHide = hasExplicitHideIntent(request.instruction);
-    const sanitizedCss = sanitizeSelectedElementCss(parsed.css?.trim() || '', request.context, { allowHide });
+    const sanitizedCss = sanitizeSelectedElementCss(parsed.css?.trim() || '', request.context, {
+      allowHide,
+      allowDescendants: true,
+    });
 
     return {
       action: 'ai-modify',
@@ -743,13 +748,14 @@ function fallbackAiModifyCss(context: SelectedElementContext, instruction: strin
 function sanitizeSelectedElementCss(
   css: string,
   context: SelectedElementContext,
-  options: { allowHide: boolean; maxAncestorDepth?: number },
+  options: { allowHide: boolean; maxAncestorDepth?: number; allowDescendants?: boolean },
 ) {
   if (!css.trim()) return '';
 
   const selectedSelectors = new Set([
     context.selected.selector,
     context.recommendedTarget?.selector,
+    ...(options.allowDescendants ? (context.descendants ?? []).map((descendant) => descendant.selector) : []),
     ...context.ancestors
       .filter((ancestor) => isSafeSelectedAncestor(ancestor, options.maxAncestorDepth))
       .map((ancestor) => ancestor.selector),
@@ -765,7 +771,8 @@ function sanitizeSelectedElementCss(
     if (!options.allowHide && declarationsHideElement(declarations)) continue;
 
     const selectors = splitSelectorList(selectorText).filter((selector) => (
-      isScopedToSelectedElement(selector, selectedSelectors)
+      isScopedToSelectedElement(selector, selectedSelectors) &&
+      !isUnsafeSelectedElementHide(selector, declarations, context, options)
     ));
     if (!declarations) continue;
 
@@ -801,6 +808,21 @@ function isScopedToSelectedElement(selector: string, selectedSelectors: Set<stri
   }
 
   return false;
+}
+
+function isUnsafeSelectedElementHide(
+  selector: string,
+  declarations: string,
+  context: SelectedElementContext,
+  options: { allowDescendants?: boolean },
+) {
+  if (!options.allowDescendants || !declarationsHideElement(declarations)) {
+    return false;
+  }
+
+  const selectedSelector = context.selected.selector;
+  const recommendedSelector = context.recommendedTarget?.selector;
+  return selector === selectedSelector || selector === recommendedSelector;
 }
 
 function getSelectedElementSelector(context: SelectedElementContext) {
@@ -845,6 +867,14 @@ function formatSelectedElementContext(context: SelectedElementContext): string {
     lines.push('Siblings:');
     for (const sibling of context.siblings) {
       lines.push(`  ${sibling.tag} ${sibling.selector} | text: ${sibling.text.slice(0, 80)}`);
+    }
+  }
+
+  const descendants = context.descendants ?? [];
+  if (descendants.length > 0) {
+    lines.push('Visible descendants inside selected element:');
+    for (const descendant of descendants) {
+      lines.push(`  ${descendant.depth}: ${descendant.tag} ${descendant.selector} | text: ${descendant.text.slice(0, 80)}`);
     }
   }
 
