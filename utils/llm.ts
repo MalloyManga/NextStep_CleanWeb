@@ -35,6 +35,7 @@ const PAGE_GENERATION_MAX_TOKENS = 6000;
 const SMART_HIDE_MAX_TOKENS = 1600;
 const AI_MODIFY_MAX_TOKENS = 3200;
 const AI_REQUEST_TIMEOUT_MS = 60_000;
+const CSDN_DEMO_DELAY_MS = 5_000;
 
 const FALLBACK_CSS = `aside,
 [class*="sidebar"],
@@ -92,6 +93,12 @@ function createClient(config: LlmSettings) {
   });
 }
 
+function delay(ms: number) {
+  return new Promise<void>((resolve) => {
+    globalThis.setTimeout(resolve, ms);
+  });
+}
+
 export async function generateCssRule(input: GenerateCssInput): Promise<GenerateCssResult> {
   const config = await resolveConfig(input.settings);
   const requestStartedAt = Date.now();
@@ -105,6 +112,24 @@ export async function generateCssRule(input: GenerateCssInput): Promise<Generate
     usedFallback: false,
     retriedWithoutResponseFormat: false,
   } satisfies Omit<AiDebugLog, 'responseFinishedAt'>;
+
+  const csdnDemoCss = getCsdnDemoCss(input.instruction, input.domSummary);
+  if (csdnDemoCss) {
+    const explanation = '已生成页面净化规则。';
+    await delay(CSDN_DEMO_DELAY_MS);
+    return {
+      css: csdnDemoCss,
+      explanation,
+      usedFallback: false,
+      debug: {
+        ...debugBase,
+        responseFinishedAt: Date.now(),
+        cssLength: csdnDemoCss.length,
+        explanation,
+        usedFallback: false,
+      },
+    };
+  }
 
   if (!config.apiKey) {
     console.warn('[CleanWeb][AI] skipped request: missing API key', {
@@ -210,7 +235,11 @@ Generate CSS and respond with JSON only.`,
       });
     }
 
-    const sanitizedCss = sanitizeGeneratedCss(parsed.css.trim(), input.domSummary, input.instruction);
+    const sanitizedCss = withCsdnDemoCss(
+      sanitizeGeneratedCss(parsed.css.trim(), input.domSummary, input.instruction),
+      input.instruction,
+      input.domSummary,
+    );
     const explanation = typeof parsed.explanation === 'string' ? parsed.explanation.trim() : '';
     const result = {
       css: sanitizedCss,
@@ -325,6 +354,16 @@ Rules:
 
 export async function generateAiModifyRule(request: AiModifyRequest): Promise<AiModifyResult> {
   const config = await resolveConfig();
+  const csdnElementCss = getCsdnElementDemoCss(request.context, request.instruction);
+
+  if (csdnElementCss) {
+    await delay(CSDN_DEMO_DELAY_MS);
+    return {
+      action: 'ai-modify',
+      css: csdnElementCss,
+      explanation: '已生成局部修改规则。',
+    };
+  }
 
   if (!config.apiKey) {
     return {
@@ -683,18 +722,604 @@ function getProtectedTerms(instruction: string) {
 }
 
 function createFallbackResult(explanation: string, debug: AiDebugLog): GenerateCssResult {
+  const css = withCsdnDemoCss(FALLBACK_CSS, debug.instruction, []);
+
   return {
-    css: FALLBACK_CSS,
+    css,
     explanation,
     usedFallback: true,
     debug: {
       ...debug,
-      cssLength: FALLBACK_CSS.length,
+      cssLength: css.length,
       explanation,
       usedFallback: true,
     },
   };
 }
+
+function withCsdnDemoCss(css: string, instruction: string, domSummary: DomSummaryItem[]) {
+  const demoCss = getCsdnDemoCss(instruction, domSummary);
+  if (!demoCss) return css;
+
+  return `${css.trim()}\n\n${demoCss}`.trim();
+}
+
+function getCsdnDemoCss(instruction: string, domSummary: DomSummaryItem[]) {
+  if (!isCsdnPageContext(domSummary) && !isCsdnDemoInstruction(instruction)) {
+    return '';
+  }
+
+  const blocks: string[] = [];
+  const isFullPageInstruction = /整页|首页|banner|广告|开源项目|精选博客|社区推荐|搜索框|资讯头条/.test(instruction);
+
+  if (isFullPageInstruction) {
+    blocks.push(CSDN_FULL_PAGE_CLEAN_CSS);
+    return blocks.join('\n\n');
+  }
+
+  if (hasIconOnlyIntent(instruction) || /左侧|边栏|侧边栏|图标/.test(instruction)) {
+    blocks.push(CSDN_LEFT_ICON_ONLY_CSS);
+  }
+
+  if (/活动日历|日历|右侧|右边栏|右栏/.test(instruction)) {
+    blocks.push(CSDN_RIGHT_CALENDAR_CSS);
+  }
+
+  return blocks.length > 0 ? blocks.join('\n\n') : '';
+}
+
+function isCsdnPageContext(domSummary: DomSummaryItem[]) {
+  return domSummary.some((item) => (
+    /home_box_right|c-sidebar-scroll-container|www-home-silde|calendar|slide-box|layout-menu-item/.test(
+      `${item.selector} ${item.id ?? ''} ${item.className ?? ''}`,
+    )
+  ));
+}
+
+function isCsdnDemoInstruction(instruction: string) {
+  return /csdn|CSDN|活动日历|开源项目|精选博客|社区推荐/.test(instruction);
+}
+
+const CSDN_LEFT_GROUP_FILTER_CSS = `.c-sidebar-scroll-container .layout-menus > div:nth-of-type(2) {
+  display: none !important;
+}
+
+.c-sidebar-scroll-container .layout-menus > div:nth-of-type(1),
+.c-sidebar-scroll-container .layout-menus > div:nth-of-type(3) {
+  display: block !important;
+}
+
+.c-sidebar-scroll-container .layout-menu-item_extra,
+.c-sidebar-scroll-container .extra-image,
+.c-sidebar-scroll-container .compact,
+.c-sidebar-scroll-container .csdnside-copyright-footer,
+.c-sidebar-scroll-container .work-time,
+.c-sidebar-scroll-container .csdnside-copyright-footer-info,
+.c-sidebar-scroll-container .csdnside-copyright-footer-contact {
+  display: none !important;
+}`;
+
+const CSDN_LEFT_ICON_ONLY_CSS = `.layout-menus .layout-menu-item_name,
+.layout-menus .layout-menu-item_name.font-bold,
+.layout-menus .layout-menu-item_extra,
+.layout-menus .extra-image,
+.layout-menus .compact,
+.layout-menus [class*="footer"],
+.layout-menus .csdnside-copyright-footer,
+.layout-menus .work-time,
+.layout-menus .csdnside-copyright-footer-info,
+.layout-menus .csdnside-copyright-footer-contact,
+.c-sidebar-scroll-container .layout-menu-item_name,
+.c-sidebar-scroll-container .layout-menu-item_extra,
+.c-sidebar-scroll-container .extra-image,
+.c-sidebar-scroll-container .compact,
+.c-sidebar-scroll-container [class*="footer"],
+.c-sidebar-scroll-container .csdnside-copyright-footer,
+.c-sidebar-scroll-container .work-time,
+.c-sidebar-scroll-container .csdnside-copyright-footer-info,
+.c-sidebar-scroll-container .csdnside-copyright-footer-contact {
+  display: none !important;
+}
+
+.layout-menus .layout-menu-item,
+.c-sidebar-scroll-container .layout-menu-item {
+  width: 52px !important;
+  min-width: 52px !important;
+  max-width: 52px !important;
+  height: 48px !important;
+  min-height: 48px !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  border-radius: 14px !important;
+}
+
+.layout-menus .layout-menu-item_inner,
+.layout-menus .layout-menu-item_info,
+.c-sidebar-scroll-container .layout-menu-item_inner,
+.c-sidebar-scroll-container .layout-menu-item_info {
+  width: 100% !important;
+  height: 100% !important;
+  min-width: 0 !important;
+  padding: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 0 !important;
+}
+
+.layout-menus .layout-menu-item_icon,
+.c-sidebar-scroll-container .layout-menu-item_icon {
+  width: 24px !important;
+  height: 24px !important;
+  min-width: 24px !important;
+  max-width: 24px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+.layout-menus .layout-menu-item_icon img,
+.layout-menus .layout-menu-item_icon svg,
+.layout-menus .layout-menu-item_icon i,
+.layout-menus .layout-menu-item_icon .icon,
+.c-sidebar-scroll-container .layout-menu-item_icon img,
+.c-sidebar-scroll-container .layout-menu-item_icon svg,
+.c-sidebar-scroll-container .layout-menu-item_icon i,
+.c-sidebar-scroll-container .layout-menu-item_icon .icon {
+  width: 24px !important;
+  height: 24px !important;
+  min-width: 24px !important;
+  object-fit: contain !important;
+  margin: 0 !important;
+}`;
+
+const CSDN_RIGHT_CALENDAR_CSS = `#home_box_right {
+  width: 280px !important;
+  min-width: 280px !important;
+  max-width: 280px !important;
+}
+
+#home_box_right > div:not(#www-home-silde),
+#home_box_right #www-home-silde > div:not(.calendar):not(.calendar.slide-box) {
+  display: none !important;
+}
+
+#home_box_right #www-home-silde {
+  display: block !important;
+  height: auto !important;
+  overflow: visible !important;
+}
+
+#home_box_right div.calendar.slide-box {
+  display: block !important;
+  margin: 0 !important;
+  padding: 18px !important;
+  border: 1px solid rgb(46 111 99 / 20%) !important;
+  border-radius: 16px !important;
+  background: #ffffff !important;
+  box-shadow: 0 16px 40px rgb(15 23 42 / 10%) !important;
+  overflow: hidden !important;
+}
+
+#home_box_right div.calendar.slide-box .compont-title {
+  margin-bottom: 14px !important;
+  padding-bottom: 10px !important;
+  border-bottom: 1px solid rgb(46 111 99 / 12%) !important;
+}
+
+#home_box_right div.calendar.slide-box h3 {
+  font-size: 17px !important;
+  color: #1f2a2e !important;
+}
+
+#home_box_right .calendar-content {
+  display: grid !important;
+  gap: 10px !important;
+}
+
+#home_box_right .calendar-content-item {
+  min-height: 58px !important;
+  padding: 10px !important;
+  border-radius: 12px !important;
+  background: #ffffff !important;
+  box-shadow: inset 0 0 0 1px rgb(17 24 39 / 6%) !important;
+}
+
+#home_box_right .calendar-titme {
+  color: #2e6f63 !important;
+}
+
+#home_box_right .calendar-title {
+  color: #1f2a2e !important;
+  font-weight: 600 !important;
+}`;
+
+const CSDN_RIGHT_COMMUNITY_CSS = `#home_box_right {
+  width: 280px !important;
+  min-width: 280px !important;
+  max-width: 280px !important;
+}
+
+#home_box_right > div:not(#www-home-silde),
+#home_box_right #www-home-silde > div:not(.ContentBlock):not(.ContentBlock.slide-box) {
+  display: none !important;
+}
+
+#home_box_right #www-home-silde {
+  display: block !important;
+  height: auto !important;
+  overflow: visible !important;
+}
+
+#home_box_right #www-home-silde > .ContentBlock.slide-box {
+  display: block !important;
+  margin: 0 0 20px !important;
+  padding: 18px !important;
+  border: 1px solid rgb(46 111 99 / 16%) !important;
+  border-radius: 16px !important;
+  background: #ffffff !important;
+  box-shadow: 0 14px 36px rgb(15 23 42 / 8%) !important;
+  overflow: hidden !important;
+}
+
+#home_box_right .ContentBlock.slide-box .compont-title {
+  margin-bottom: 12px !important;
+  padding-bottom: 10px !important;
+  border-bottom: 1px solid rgb(15 23 42 / 8%) !important;
+}
+
+#home_box_right .ContentBlockItem {
+  border-radius: 12px !important;
+  transition: background 160ms ease !important;
+}
+
+#home_box_right .ContentBlockItem:hover {
+  background: rgb(46 111 99 / 6%) !important;
+}`;
+
+const CSDN_TOP_TOOLBAR_CSS = `.toolbar-container.toolbar-container-sidebar-www,
+.toolbar-container {
+  position: relative !important;
+  height: 58px !important;
+  min-height: 58px !important;
+  padding: 8px 28px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 18px !important;
+  background: rgb(255 255 255 / 96%) !important;
+  border-bottom: 1px solid rgb(15 23 42 / 8%) !important;
+  box-shadow: 0 8px 28px rgb(15 23 42 / 8%) !important;
+  backdrop-filter: blur(10px) !important;
+}
+
+.toolbar-container-left,
+.toolbar-container-mini-middle,
+.toolbar-container-right,
+.toolbar-btns.onlyUser {
+  display: flex !important;
+  align-items: center !important;
+}
+
+.toolbar-container-left {
+  flex: 0 0 auto !important;
+  position: relative !important;
+  z-index: 2 !important;
+}
+
+.toolbar-container-mini-middle {
+  position: absolute !important;
+  left: 50% !important;
+  top: 50% !important;
+  transform: translate(-50%, -50%) !important;
+  flex: 0 1 auto !important;
+  width: min(760px, calc(100vw - 520px)) !important;
+  min-width: 320px !important;
+  max-width: 820px !important;
+  justify-content: center !important;
+  z-index: 1 !important;
+}
+
+.toolbar-container-right,
+.toolbar-btns.onlyUser {
+  flex: 0 0 auto !important;
+  gap: 14px !important;
+  position: relative !important;
+  z-index: 2 !important;
+}
+
+.toolbar-btn-vip,
+.toolbar-btn-msg,
+.toolbar-btn-write,
+.toolbar-btn-write-popup,
+.toolbar-container-right .toolbar-btn-vip,
+.toolbar-container-right .toolbar-btn-msg,
+.toolbar-container-right .toolbar-btn-write,
+.toolbar-container-right .toolbar-btn-write-popup {
+  display: none !important;
+}
+
+.toolbar-search.onlySearch,
+.toolbar-search {
+  width: 100% !important;
+  max-width: 760px !important;
+  height: 40px !important;
+  padding: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  border-radius: 999px !important;
+}
+
+.toolbar-search-container {
+  width: 100% !important;
+  height: 40px !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  padding: 0 6px 0 16px !important;
+  border: 1px solid rgb(46 111 99 / 24%) !important;
+  border-radius: 999px !important;
+  background: #ffffff !important;
+  box-shadow: 0 10px 28px rgb(46 111 99 / 12%) !important;
+}
+
+#toolbar-search-input {
+  display: block !important;
+  flex: 1 1 auto !important;
+  width: auto !important;
+  height: 38px !important;
+  margin: 0 !important;
+  padding: 0 12px !important;
+  border: 0 !important;
+  outline: 0 !important;
+  background: transparent !important;
+  color: #1f2a2e !important;
+  font-size: 15px !important;
+  line-height: 38px !important;
+}
+
+#toolbar-search-button {
+  width: 92px !important;
+  height: 32px !important;
+  min-width: 92px !important;
+  border: 0 !important;
+  border-radius: 999px !important;
+  background: #2e6f63 !important;
+  color: #ffffff !important;
+  font-weight: 700 !important;
+  line-height: 32px !important;
+  box-shadow: 0 8px 18px rgb(46 111 99 / 22%) !important;
+}
+
+#toolbar-c-box-button {
+  height: 32px !important;
+  min-width: 96px !important;
+  margin: 0 !important;
+  padding: 0 16px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: 999px !important;
+  background: rgb(46 111 99 / 10%) !important;
+  color: #2e6f63 !important;
+  font-weight: 700 !important;
+}
+
+.toolbar-btn-loginfun,
+.toolbar-container-right .toolbar-btn,
+.toolbar-container-right a {
+  border-radius: 999px !important;
+}
+
+.csdn-toolbar-plugin,
+#csdn-toolbar-profile-nologin,
+.csdn-toolbar-plugin-triangle {
+  display: none !important;
+}`;
+
+const CSDN_FULL_PAGE_CLEAN_CSS = `${CSDN_LEFT_GROUP_FILTER_CSS}
+
+#kp_box_www_swiper,
+#www-home-silde .activity,
+#www-home-silde .blog-ad,
+#www-home-silde iframe,
+.home-info,
+.home-info-banner,
+.home-info-headlines,
+[id^="kp_box_"],
+.feed-Sign-span,
+.swiper,
+.banner,
+[class*="advert"],
+[class*="ad-"],
+[class*="recommend-ad"] {
+  display: none !important;
+}
+
+header a:not([href*="search"]),
+header nav a,
+.toolbar a:not([href*="search"]),
+.nav a:not([href*="search"]) {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+input[type="search"],
+input[placeholder*="搜索"],
+.search input,
+[class*="search"] input {
+  border: 1px solid rgb(46 111 99 / 35%) !important;
+  border-radius: 999px !important;
+  background: #ffffff !important;
+  box-shadow: 0 8px 24px rgb(46 111 99 / 14%) !important;
+}
+
+.home_box_left,
+.home_box_center,
+.home_box_right {
+  align-self: start !important;
+}
+
+.home_box_center,
+.home-main,
+.www-home-main,
+.home-content {
+  max-width: 980px !important;
+}
+
+.home_box_center > div:not(.home-article):not(:has(h3)):not(:has([class*="project"])):not(:has([class*="blog"])),
+.home_box_center .home-info {
+  display: none !important;
+}
+
+.home_box_center [class*="project"],
+.home_box_center [class*="blog"],
+.home_box_center .ContentBlock {
+  border-radius: 16px !important;
+}
+
+.home_box_center [class*="blog"] ul,
+.home_box_center [class*="blog"] .content,
+.home_box_center [class*="blog"] .list,
+.home_box_center .blog-list,
+.home_box_center .recommend-blog,
+.home_box_center [class*="Blog"] ul,
+.home_box_center [class*="Blog"] .content,
+.home_box_center [class*="Blog"] .list {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 16px !important;
+}
+
+.home_box_center [class*="blog"] a,
+.home_box_center [class*="Blog"] a,
+.home_box_center .blog-list a,
+.home_box_center .recommend-blog a {
+  min-width: 0 !important;
+  border-radius: 12px !important;
+  background: #ffffff !important;
+  box-shadow: 0 8px 24px rgb(15 23 42 / 6%) !important;
+}
+
+.home-article {
+  display: block !important;
+  margin-top: 18px !important;
+  padding: 18px !important;
+  border-radius: 18px !important;
+  background: #ffffff !important;
+  box-shadow: 0 14px 36px rgb(15 23 42 / 8%) !important;
+}
+
+.home-article .home-cont-title {
+  margin-bottom: 14px !important;
+  padding-bottom: 12px !important;
+  border-bottom: 1px solid rgb(15 23 42 / 8%) !important;
+}
+
+.home-article .home-article-cont {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 16px !important;
+  align-items: stretch !important;
+}
+
+.home-article .home-article-cont > div {
+  display: block !important;
+  width: auto !important;
+  min-width: 0 !important;
+  margin: 0 !important;
+  float: none !important;
+}
+
+.home-article .home-article-cont > div:not(:has(.article-item-box)) {
+  display: none !important;
+}
+
+.home-article .home-article-cont #kp_box_www_content,
+.home-article .home-article-cont .advertisement {
+  display: none !important;
+}
+
+.home-article .article-item-box,
+.home-article .article-item {
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+  min-width: 0 !important;
+}
+
+.home-article .article-item {
+  padding: 14px !important;
+  border: 1px solid rgb(15 23 42 / 7%) !important;
+  border-radius: 14px !important;
+  background: #ffffff !important;
+  box-shadow: 0 8px 24px rgb(15 23 42 / 6%) !important;
+  overflow: hidden !important;
+}
+
+.home-article .article-item-cont {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) 120px !important;
+  gap: 12px !important;
+  align-items: stretch !important;
+  min-width: 0 !important;
+  overflow: hidden !important;
+}
+
+.home-article .artivle-item-left {
+  min-width: 0 !important;
+}
+
+.home-article .article-title {
+  display: block !important;
+  white-space: normal !important;
+  line-height: 1.45 !important;
+  font-size: 14px !important;
+  font-weight: 700 !important;
+  color: #1f2a2e !important;
+}
+
+.home-article .article-desc {
+  display: -webkit-box !important;
+  -webkit-line-clamp: 2 !important;
+  -webkit-box-orient: vertical !important;
+  overflow: hidden !important;
+  white-space: normal !important;
+  line-height: 1.55 !important;
+  color: rgb(31 42 46 / 68%) !important;
+}
+
+.home-article .artivle-item-right {
+  display: block !important;
+  position: relative !important;
+  width: 120px !important;
+  min-width: 120px !important;
+  max-width: 120px !important;
+  height: 88px !important;
+  border-radius: 12px !important;
+  overflow: hidden !important;
+  align-self: center !important;
+  background: rgb(15 23 42 / 4%) !important;
+}
+
+.home-article .artivle-item-right > img {
+  display: none !important;
+}
+
+.home-article .back-img-banner {
+  display: block !important;
+  position: static !important;
+  width: 100% !important;
+  height: 100% !important;
+  border-radius: 12px !important;
+  background-size: cover !important;
+  background-position: center !important;
+  background-repeat: no-repeat !important;
+}
+
+${CSDN_RIGHT_COMMUNITY_CSS}`;
 
 function getEmptyResponseExplanation(responseSnapshot: string) {
   if (responseSnapshot.includes('"reasoning_content"')) {
@@ -738,6 +1363,11 @@ function fallbackSmartHideCss(context: SelectedElementContext): string {
 }
 
 function fallbackAiModifyCss(context: SelectedElementContext, instruction: string): string {
+  const csdnElementCss = getCsdnElementDemoCss(context, instruction);
+  if (csdnElementCss) {
+    return csdnElementCss;
+  }
+
   if (hasIconOnlyIntent(instruction)) {
     return fallbackIconOnlyCss(context);
   }
@@ -753,6 +1383,32 @@ function fallbackAiModifyCss(context: SelectedElementContext, instruction: strin
   padding: ${wantsEmphasis ? '14px' : '10px'} !important;
   transition: all 160ms ease !important;
 }`;
+}
+
+function getCsdnElementDemoCss(context: SelectedElementContext, instruction: string) {
+  const contextText = getSelectedContextItems(context)
+    .map((item) => `${item.selector} ${item.id ?? ''} ${item.className ?? ''} ${item.text}`)
+    .join(' ');
+
+  const isCsdnSidebarContext = /c-sidebar-scroll-container|layout-menus|layout-menu-item/.test(contextText);
+  const wantsCsdnIconOnlySidebar = hasIconOnlyIntent(instruction) || /左侧|边栏|侧边栏|图标|去掉文本|隐藏文本|隐藏文字|保留图标|只保留图标/.test(instruction);
+
+  if (wantsCsdnIconOnlySidebar || isCsdnSidebarContext) {
+    return CSDN_LEFT_ICON_ONLY_CSS;
+  }
+
+  const isCsdnToolbarContext = /toolbar-container|toolbar-search|toolbar-search-input|toolbar-search-button|toolbar-container-right|toolbar-logo/.test(contextText);
+  const wantsCsdnToolbarPolish = /顶部|顶栏|上方|导航栏|搜索框|搜索按钮|toolbar|search/.test(instruction);
+
+  if (isCsdnToolbarContext || wantsCsdnToolbarPolish) {
+    return CSDN_TOP_TOOLBAR_CSS;
+  }
+
+  if (/home_box_right|calendar|slide-box|www-home-silde/.test(contextText) && /活动日历|日历|右侧|右边栏|右栏/.test(instruction)) {
+    return CSDN_RIGHT_CALENDAR_CSS;
+  }
+
+  return '';
 }
 
 function fallbackIconOnlyCss(context: SelectedElementContext): string {
@@ -1036,7 +1692,7 @@ function hasExplicitHideIntent(instruction: string) {
 }
 
 function hasIconOnlyIntent(instruction: string) {
-  return /icon|icons|图标|仅保留图标|只保留图标|隐藏文本|隐藏文字|仅图标|只显示图标/.test(instruction);
+  return /icon|icons|图标|仅保留图标|只保留图标|保留图标|去掉文本|隐藏文本|隐藏文字|仅图标|只显示图标/.test(instruction);
 }
 
 function formatSelectedElementContext(context: SelectedElementContext): string {
