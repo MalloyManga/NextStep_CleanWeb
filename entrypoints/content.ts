@@ -587,7 +587,7 @@ async function handleHideSelectedElement(event: MouseEvent) {
   }
 
   try {
-    const context = collectElementContext(target, { ancestorDepth: 4, siblingCount: 4 });
+    const context = collectElementContext(target, { ancestorDepth: 4, siblingCount: 4, descendantCount: 0 });
     context.recommendedTarget = toElementContextItem(hideTarget);
 
     const message: SmartHideMessage = { type: 'CLEANWEB_SMART_HIDE', context };
@@ -823,7 +823,7 @@ function createAiPanelContent() {
     submitBtn.textContent = '生成中…';
 
     try {
-      const context = collectElementContext(target, { ancestorDepth: 4, siblingCount: 4 });
+      const context = collectElementContext(target, { ancestorDepth: 4, siblingCount: 6, descendantCount: 96 });
       context.recommendedTarget = toElementContextItem(target);
 
       const message: AiModifyMessage = { type: 'CLEANWEB_AI_MODIFY', instruction, context };

@@ -138,6 +138,7 @@ Rules:
 - Use stable selectors: id, aria-label, role, then semantic class names.
 - Avoid nth-child and overly deep selectors.
 - Use !important only when necessary to override existing styles.
+- Each DOM item may include computed style fields. Use width, height, min/max width, margin, padding, flex, flex-basis, flex-direction, align-items, justify-content, gap, grid-template-columns, display, position, overflow, z-index, border-radius, and background-color to understand layout gaps before writing override CSS.
 - Follow the user's intent in any language. If they ask to hide/remove/delete, hide distracting elements. If they ask to beautify/enlarge/center/highlight/clean up/restyle, prefer typography, spacing, width, alignment, contrast, borders, shadows, and focus states.
 - Do not default to display:none. Use display:none mainly for explicit hiding/removal requests or obvious ads/recommendation/sidebar noise.
 - Never hide broad parent containers and then try to show their children again. CSS cannot reveal children of a display:none parent.
@@ -328,8 +329,8 @@ export async function generateAiModifyRule(request: AiModifyRequest): Promise<Ai
   if (!config.apiKey) {
     return {
       action: 'ai-modify',
-      css: '',
-      explanation: 'Missing API key. AI modify is unavailable.',
+      css: fallbackAiModifyCss(request.context, request.instruction),
+      explanation: 'Missing API key. CleanWeb used a conservative local style.',
     };
   }
 
@@ -346,6 +347,10 @@ Rules:
 - Do not hide/remove content unless the user's instruction explicitly says hide, remove, delete, or discard.
 - If the user asks to keep only one internal section, hide sibling descendants inside the selected element instead of styling only the selected wrapper.
 - Never hide the selected wrapper when the user asks to keep something inside it.
+- Never hide any selected-context item whose text contains a section the user asked to keep, such as 活动日历, 社区推荐, 开源项目, or 精选博客.
+- If a listed descendant's selector or text directly matches the user's target, use that selector exactly. For example, prefer a selector like ".calendar.slide-box" when the user asks to keep 活动日历.
+- For icon-only sidebars, hide label text while preserving svg/img/i/icon elements. If labels are not wrapped in their own elements, set the menu item font-size to 0 and then restore width/height/font-size on svg, img, i, and icon elements.
+- Use computed style fields to fix layout gaps. For sidebars, override the selected element and safe sidebar-like ancestors with width, min-width, max-width, flex-basis, margin, and padding when needed.
 - Do not generate JavaScript, HTML, or remote resources.
 - Use !important when necessary to override existing styles.
 - Keep the CSS scoped and safe.
@@ -372,6 +377,7 @@ Rules:
     const sanitizedCss = sanitizeSelectedElementCss(parsed.css?.trim() || '', request.context, {
       allowHide,
       allowDescendants: true,
+      protectedTerms: getProtectedTerms(request.instruction),
     });
 
     return {
@@ -732,6 +738,10 @@ function fallbackSmartHideCss(context: SelectedElementContext): string {
 }
 
 function fallbackAiModifyCss(context: SelectedElementContext, instruction: string): string {
+  if (hasIconOnlyIntent(instruction)) {
+    return fallbackIconOnlyCss(context);
+  }
+
   const selector = getSelectedElementSelector(context);
   const wantsEmphasis = /highlight|emphasize|醒目|突出|高亮|强调|放大|变大/.test(instruction);
 
@@ -745,21 +755,126 @@ function fallbackAiModifyCss(context: SelectedElementContext, instruction: strin
 }`;
 }
 
+function fallbackIconOnlyCss(context: SelectedElementContext): string {
+  const selector = getSelectedElementSelector(context);
+  const layoutSelectors = getIconOnlyLayoutSelectors(context);
+
+  return `${layoutSelectors.join(', ')} {
+  width: 76px !important;
+  min-width: 76px !important;
+  max-width: 76px !important;
+  flex: 0 0 76px !important;
+  grid-template-columns: 76px !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  overflow: hidden !important;
+}
+
+${selector} {
+  padding: 8px 6px !important;
+}
+
+${selector} > *,
+${selector} ul,
+${selector} nav,
+${selector} [class*="list"],
+${selector} [class*="group"] {
+  width: 100% !important;
+  max-width: 100% !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+}
+
+${selector} a,
+${selector} li,
+${selector} button,
+${selector} [role="button"],
+${selector} [role="menuitem"],
+${selector} [class*="item"],
+${selector} [class*="nav"],
+${selector} [class*="menu"] {
+  width: 52px !important;
+  min-width: 52px !important;
+  max-width: 52px !important;
+  height: 52px !important;
+  min-height: 52px !important;
+  margin: 6px auto !important;
+  padding: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 0 !important;
+  text-align: center !important;
+  font-size: 0 !important;
+  line-height: 0 !important;
+}
+
+${selector} svg,
+${selector} img,
+${selector} i,
+${selector} [class*="icon"],
+${selector} [class*="Icon"] {
+  display: inline-flex !important;
+  width: 24px !important;
+  min-width: 24px !important;
+  height: 24px !important;
+  min-height: 24px !important;
+  margin: 0 auto !important;
+  font-size: 24px !important;
+  line-height: 1 !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  flex: 0 0 auto !important;
+}
+
+${selector} [class*="text"],
+${selector} [class*="label"],
+${selector} [class*="title"],
+${selector} [class*="name"],
+${selector} [class*="badge"],
+${selector} [class*="coupon"],
+${selector} [class*="price"],
+${selector} [class*="promo"],
+${selector} [class*="discount"],
+${selector} [class*="footer"],
+${selector} [class*="copyright"],
+${selector} [class*="record"],
+${selector} footer {
+  display: none !important;
+}`;
+}
+
+function getIconOnlyLayoutSelectors(context: SelectedElementContext) {
+  return Array.from(new Set([
+    getSelectedElementSelector(context),
+    ...context.ancestors
+      .filter((ancestor) => ancestor.depth <= 2 && isSidebarLikeContext(ancestor))
+      .map((ancestor) => ancestor.selector),
+  ]));
+}
+
 function sanitizeSelectedElementCss(
   css: string,
   context: SelectedElementContext,
-  options: { allowHide: boolean; maxAncestorDepth?: number; allowDescendants?: boolean },
+  options: {
+    allowHide: boolean;
+    maxAncestorDepth?: number;
+    allowDescendants?: boolean;
+    protectedTerms?: string[];
+  },
 ) {
   if (!css.trim()) return '';
 
-  const selectedSelectors = new Set([
+  const selectedSelectors = createScopedSelectorSet([
     context.selected.selector,
     context.recommendedTarget?.selector,
     ...(options.allowDescendants ? (context.descendants ?? []).map((descendant) => descendant.selector) : []),
     ...context.ancestors
       .filter((ancestor) => isSafeSelectedAncestor(ancestor, options.maxAncestorDepth))
       .map((ancestor) => ancestor.selector),
-  ].filter((selector): selector is string => Boolean(selector)));
+  ]);
   const rules: string[] = [];
   const chromeSelectors: string[] = [];
   const rulePattern = /([^{}]+)\{([^{}]*)\}/g;
@@ -772,7 +887,8 @@ function sanitizeSelectedElementCss(
 
     const selectors = splitSelectorList(selectorText).filter((selector) => (
       isScopedToSelectedElement(selector, selectedSelectors) &&
-      !isUnsafeSelectedElementHide(selector, declarations, context, options)
+      !isUnsafeSelectedElementHide(selector, declarations, context, options) &&
+      !hidesProtectedSelectedContext(selector, declarations, context, options.protectedTerms ?? [])
     ));
     if (!declarations) continue;
 
@@ -797,17 +913,46 @@ function sanitizeSelectedElementCss(
 }
 
 function isScopedToSelectedElement(selector: string, selectedSelectors: Set<string>) {
+  const selectorAliases = getSelectorScopeAliases(selector);
+
   for (const selectedSelector of selectedSelectors) {
-    if (selector === selectedSelector) return true;
-    if (selector.startsWith(`${selectedSelector}:`)) return true;
-    if (selector.startsWith(`${selectedSelector}[`)) return true;
-    if (selector.startsWith(`${selectedSelector} `)) return true;
-    if (selector.startsWith(`${selectedSelector} >`)) return true;
-    if (selector.startsWith(`${selectedSelector} +`)) return true;
-    if (selector.startsWith(`${selectedSelector} ~`)) return true;
+    for (const selectorAlias of selectorAliases) {
+      if (selectorAlias === selectedSelector) return true;
+      if (selectorAlias.startsWith(`${selectedSelector}:`)) return true;
+      if (selectorAlias.startsWith(`${selectedSelector}[`)) return true;
+      if (selectorAlias.startsWith(`${selectedSelector} `)) return true;
+      if (selectorAlias.startsWith(`${selectedSelector} >`)) return true;
+      if (selectorAlias.startsWith(`${selectedSelector} +`)) return true;
+      if (selectorAlias.startsWith(`${selectedSelector} ~`)) return true;
+    }
   }
 
   return false;
+}
+
+function createScopedSelectorSet(selectors: Array<string | undefined>) {
+  const scopedSelectors = new Set<string>();
+
+  for (const selector of selectors) {
+    if (!selector) continue;
+    for (const alias of getSelectorScopeAliases(selector)) {
+      scopedSelectors.add(alias);
+    }
+  }
+
+  return scopedSelectors;
+}
+
+function getSelectorScopeAliases(selector: string) {
+  const trimmedSelector = selector.trim();
+  const aliases = new Set([trimmedSelector]);
+  const taglessSelector = trimmedSelector.replace(/^[a-z][a-z0-9-]*(?=[.#[:])/i, '');
+
+  if (taglessSelector && taglessSelector !== trimmedSelector) {
+    aliases.add(taglessSelector);
+  }
+
+  return Array.from(aliases);
 }
 
 function isUnsafeSelectedElementHide(
@@ -825,6 +970,47 @@ function isUnsafeSelectedElementHide(
   return selector === selectedSelector || selector === recommendedSelector;
 }
 
+function hidesProtectedSelectedContext(
+  selector: string,
+  declarations: string,
+  context: SelectedElementContext,
+  protectedTerms: string[],
+) {
+  if (protectedTerms.length === 0 || !declarationsHideElement(declarations)) {
+    return false;
+  }
+
+  return getSelectedContextItems(context).some((item) => (
+    selectorMatchesContextItem(selector, item.selector) &&
+    protectedTerms.some((term) => item.text.includes(term))
+  ));
+}
+
+function getSelectedContextItems(context: SelectedElementContext) {
+  return [
+    context.selected,
+    ...(context.recommendedTarget ? [context.recommendedTarget] : []),
+    ...context.ancestors,
+    ...context.siblings,
+    ...(context.descendants ?? []),
+  ];
+}
+
+function selectorMatchesContextItem(selector: string, itemSelector: string) {
+  const selectorAliases = getSelectorScopeAliases(selector);
+  const itemAliases = getSelectorScopeAliases(itemSelector);
+
+  return selectorAliases.some((selectorAlias) => (
+    itemAliases.some((itemAlias) => (
+      selectorAlias === itemAlias ||
+      selectorAlias.startsWith(`${itemAlias} `) ||
+      selectorAlias.startsWith(`${itemAlias} >`) ||
+      itemAlias.startsWith(`${selectorAlias} `) ||
+      itemAlias.startsWith(`${selectorAlias} >`)
+    ))
+  ));
+}
+
 function getSelectedElementSelector(context: SelectedElementContext) {
   return context.recommendedTarget?.selector ?? context.selected.selector;
 }
@@ -840,8 +1026,17 @@ function isSafeSelectedAncestor(ancestor: ElementContextItem, maxDepth?: number)
   );
 }
 
+function isSidebarLikeContext(item: ElementContextItem) {
+  const target = `${item.selector} ${item.id ?? ''} ${item.className ?? ''} ${item.role ?? ''}`.toLowerCase();
+  return /sidebar|side-bar|sider|aside|nav|menu|left/.test(target);
+}
+
 function hasExplicitHideIntent(instruction: string) {
   return /hide|remove|delete|discard|隐藏|移除|删除|去掉|删掉/.test(instruction);
+}
+
+function hasIconOnlyIntent(instruction: string) {
+  return /icon|icons|图标|仅保留图标|只保留图标|隐藏文本|隐藏文字|仅图标|只显示图标/.test(instruction);
 }
 
 function formatSelectedElementContext(context: SelectedElementContext): string {
@@ -849,6 +1044,7 @@ function formatSelectedElementContext(context: SelectedElementContext): string {
   const lines = [
     `Selected: ${selected.tag} ${selected.selector}`,
     `  rect: ${JSON.stringify(selected.rect)}`,
+    `  style: ${JSON.stringify(selected.style)}`,
     `  text: ${selected.text.slice(0, 80)}`,
   ];
 
@@ -859,14 +1055,14 @@ function formatSelectedElementContext(context: SelectedElementContext): string {
   if (context.ancestors.length > 0) {
     lines.push('Ancestors:');
     for (const ancestor of context.ancestors) {
-      lines.push(`  ${ancestor.depth}: ${ancestor.tag} ${ancestor.selector} | text: ${ancestor.text.slice(0, 80)}`);
+      lines.push(`  ${ancestor.depth}: ${ancestor.tag} ${ancestor.selector} | style: ${JSON.stringify(ancestor.style)} | text: ${ancestor.text.slice(0, 80)}`);
     }
   }
 
   if (context.siblings.length > 0) {
     lines.push('Siblings:');
     for (const sibling of context.siblings) {
-      lines.push(`  ${sibling.tag} ${sibling.selector} | text: ${sibling.text.slice(0, 80)}`);
+      lines.push(`  ${sibling.tag} ${sibling.selector} | style: ${JSON.stringify(sibling.style)} | text: ${sibling.text.slice(0, 80)}`);
     }
   }
 
@@ -874,7 +1070,7 @@ function formatSelectedElementContext(context: SelectedElementContext): string {
   if (descendants.length > 0) {
     lines.push('Visible descendants inside selected element:');
     for (const descendant of descendants) {
-      lines.push(`  ${descendant.depth}: ${descendant.tag} ${descendant.selector} | text: ${descendant.text.slice(0, 80)}`);
+      lines.push(`  ${descendant.depth}: ${descendant.tag} ${descendant.selector} | style: ${JSON.stringify(descendant.style)} | text: ${descendant.text.slice(0, 80)}`);
     }
   }
 

@@ -1,9 +1,15 @@
-import type { DomSummaryItem, ElementContextItem, SelectedElementContext } from '../types/cleanweb';
+import type {
+  DomComputedStyleSummary,
+  DomSummaryItem,
+  ElementContextItem,
+  SelectedElementContext,
+} from '../types/cleanweb';
 
 const MAX_ITEMS = 120;
 const TEXT_LIMIT = 80;
 const MIN_AREA = 900;
-const DEFAULT_DESCENDANT_COUNT = 12;
+const DESCENDANT_MIN_AREA = 160;
+const DEFAULT_DESCENDANT_COUNT = 32;
 
 export function collectDomSummary(): DomSummaryItem[] {
   const elements = Array.from(document.querySelectorAll('body *')).filter(
@@ -46,6 +52,7 @@ function toSummaryItem(element: HTMLElement): DomSummaryItem | null {
       width: Math.round(rect.width),
       height: Math.round(rect.height),
     },
+    style: toComputedStyleSummary(style),
     visible: true,
     childElementCount: element.children.length,
     imageCount: element.querySelectorAll('img').length,
@@ -73,7 +80,8 @@ export function buildReadableSelector(element: HTMLElement): string {
 
   const classSelector = Array.from(element.classList)
     .filter((className) => /^[a-zA-Z0-9_-]+$/.test(className))
-    .slice(0, 3)
+    .sort((a, b) => getClassSelectorScore(b) - getClassSelectorScore(a))
+    .slice(0, 4)
     .map((className) => `.${CSS.escape(className)}`)
     .join('');
 
@@ -92,8 +100,21 @@ function cssStringEscape(value: string) {
   return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }
 
+function getClassSelectorScore(className: string) {
+  if (/calendar|slide|sidebar|menu|item|name|footer|copyright|home|box|right|left/i.test(className)) {
+    return 3;
+  }
+
+  if (/^[a-z][a-z0-9-]*$/i.test(className)) {
+    return 2;
+  }
+
+  return 1;
+}
+
 export function toElementContextItem(element: HTMLElement, depth = 0): ElementContextItem {
   const rect = element.getBoundingClientRect();
+  const style = window.getComputedStyle(element);
   const viewportArea = window.innerWidth * window.innerHeight;
   const area = Math.max(0, rect.width) * Math.max(0, rect.height);
   const text = normalizeText(element.innerText).slice(0, TEXT_LIMIT);
@@ -112,9 +133,45 @@ export function toElementContextItem(element: HTMLElement, depth = 0): ElementCo
       width: Math.round(rect.width),
       height: Math.round(rect.height),
     },
+    style: toComputedStyleSummary(style),
     depth,
     areaRatio: viewportArea > 0 ? area / viewportArea : 0,
     visible: true,
+    childElementCount: element.children.length,
+    imageCount: element.querySelectorAll('img').length,
+    iframeCount: element.querySelectorAll('iframe').length,
+    linkCount: element.querySelectorAll('a').length,
+    inputCount: element.querySelectorAll('input, textarea, select').length,
+    buttonCount: element.querySelectorAll('button, [role="button"]').length,
+  };
+}
+
+function toComputedStyleSummary(style: CSSStyleDeclaration): DomComputedStyleSummary {
+  return {
+    display: style.display,
+    position: style.position,
+    width: style.width,
+    minWidth: style.minWidth,
+    maxWidth: style.maxWidth,
+    marginLeft: style.marginLeft,
+    marginRight: style.marginRight,
+    marginTop: style.marginTop,
+    marginBottom: style.marginBottom,
+    paddingLeft: style.paddingLeft,
+    paddingRight: style.paddingRight,
+    paddingTop: style.paddingTop,
+    paddingBottom: style.paddingBottom,
+    flex: style.flex,
+    flexBasis: style.flexBasis,
+    flexDirection: style.flexDirection,
+    alignItems: style.alignItems,
+    justifyContent: style.justifyContent,
+    gap: style.gap,
+    gridTemplateColumns: style.gridTemplateColumns,
+    overflow: style.overflow,
+    zIndex: style.zIndex,
+    borderRadius: style.borderRadius,
+    backgroundColor: style.backgroundColor,
   };
 }
 
@@ -162,12 +219,46 @@ export function collectElementContext(
 function collectVisibleDescendants(element: HTMLElement, limit: number): ElementContextItem[] {
   if (limit <= 0) return [];
 
-  return Array.from(element.querySelectorAll('*'))
+  const candidates = Array.from(element.querySelectorAll('*'))
     .filter((child): child is HTMLElement => child instanceof HTMLElement)
     .map((child) => toDescendantContextItem(element, child))
-    .filter((item): item is ElementContextItem => Boolean(item))
-    .sort((a, b) => getElementContextScore(b) - getElementContextScore(a))
-    .slice(0, limit);
+    .filter((item): item is ElementContextItem => Boolean(item));
+
+  const picked = new Map<string, ElementContextItem>();
+  const addItems = (items: ElementContextItem[], maxCount: number) => {
+    for (const item of items) {
+      if (picked.size >= limit || picked.size >= maxCount) return;
+      picked.set(getElementContextKey(item), item);
+    }
+  };
+
+  addItems(
+    candidates
+      .filter((item) => item.depth === 1)
+      .sort((a, b) => getElementContextScore(b) - getElementContextScore(a)),
+    Math.min(limit, 12),
+  );
+
+  addItems(
+    candidates
+      .filter((item) => isTextLeafContext(item))
+      .sort((a, b) => getElementContextScore(b) - getElementContextScore(a)),
+    Math.min(limit, picked.size + 18),
+  );
+
+  addItems(
+    candidates
+      .filter((item) => isIconLikeContext(item) || isSemanticContext(item))
+      .sort((a, b) => getElementContextScore(b) - getElementContextScore(a)),
+    Math.min(limit, picked.size + 12),
+  );
+
+  addItems(
+    candidates.sort((a, b) => getElementContextScore(b) - getElementContextScore(a)),
+    limit,
+  );
+
+  return Array.from(picked.values()).slice(0, limit);
 }
 
 function toDescendantContextItem(root: HTMLElement, child: HTMLElement): ElementContextItem | null {
@@ -183,7 +274,7 @@ function toDescendantContextItem(root: HTMLElement, child: HTMLElement): Element
   const item = toElementContextItem(child, getDescendantDepth(root, child));
   if (
     !item.visible ||
-    item.rect.width * item.rect.height < MIN_AREA ||
+    item.rect.width * item.rect.height < DESCENDANT_MIN_AREA ||
     item.selector === buildReadableSelector(root)
   ) {
     return null;
@@ -208,7 +299,31 @@ function getElementContextScore(item: ElementContextItem) {
   const area = item.rect.width * item.rect.height;
   const textScore = item.text.length > 0 ? 12000 : 0;
   const semanticScore = item.id || item.role || item.ariaLabel ? 8000 : 0;
+  const leafScore = isTextLeafContext(item) ? 16000 : 0;
+  const iconScore = isIconLikeContext(item) ? 14000 : 0;
   const interactiveScore = (item.linkCount ?? 0) + (item.buttonCount ?? 0) + (item.inputCount ?? 0);
 
-  return area + textScore + semanticScore + interactiveScore * 1200;
+  return area + textScore + semanticScore + leafScore + iconScore + interactiveScore * 1200;
+}
+
+function getElementContextKey(item: ElementContextItem) {
+  return `${item.selector}|${item.rect.x}|${item.rect.y}|${item.rect.width}|${item.rect.height}`;
+}
+
+function isTextLeafContext(item: ElementContextItem) {
+  return item.text.length > 0 && (item.childElementCount ?? 0) === 0;
+}
+
+function isSemanticContext(item: ElementContextItem) {
+  return Boolean(item.id || item.role || item.ariaLabel || item.className);
+}
+
+function isIconLikeContext(item: ElementContextItem) {
+  const target = `${item.selector} ${item.className ?? ''} ${item.ariaLabel ?? ''}`.toLowerCase();
+  return (
+    item.tag === 'svg' ||
+    item.tag === 'img' ||
+    item.tag === 'i' ||
+    /(^|[-_\s.#])(icon|svg|logo|avatar)([-_\s.#]|$)/i.test(target)
+  );
 }

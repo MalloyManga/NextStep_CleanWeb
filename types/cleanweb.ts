@@ -5,6 +5,33 @@ export interface DomSummaryRect {
   height: number;
 }
 
+export interface DomComputedStyleSummary {
+  display: string;
+  position: string;
+  width: string;
+  minWidth: string;
+  maxWidth: string;
+  marginLeft: string;
+  marginRight: string;
+  marginTop: string;
+  marginBottom: string;
+  paddingLeft: string;
+  paddingRight: string;
+  paddingTop: string;
+  paddingBottom: string;
+  flex: string;
+  flexBasis: string;
+  flexDirection: string;
+  alignItems: string;
+  justifyContent: string;
+  gap: string;
+  gridTemplateColumns: string;
+  overflow: string;
+  zIndex: string;
+  borderRadius: string;
+  backgroundColor: string;
+}
+
 export interface DomSummaryItem {
   selector: string;
   tag: string;
@@ -14,6 +41,7 @@ export interface DomSummaryItem {
   ariaLabel?: string;
   text: string;
   rect: DomSummaryRect;
+  style?: DomComputedStyleSummary;
   visible: boolean;
   childElementCount?: number;
   imageCount?: number;
