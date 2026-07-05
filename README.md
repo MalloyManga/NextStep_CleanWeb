@@ -1,85 +1,99 @@
 # CleanWeb
 
-CleanWeb 是一个自然语言驱动的网页净化浏览器插件。用户输入一句话，例如“隐藏右侧推荐和广告，把正文居中放大”，插件分析页面结构，生成并注入 CSS 规则，让页面立即变得更适合阅读。
+让网页变干净，像拍照时去掉路人一样简单。
 
-```text
-臃肿网页 -> 输入自然语言 -> 生成 CSS 规则 -> 页面立即变清爽 -> 保存规则 -> 下次自动生效
+CleanWeb 是一款浏览器扩展，帮你把臃肿、嘈杂的网页变成专注、清爽的阅读版本。不管是广告栏、推荐流、悬浮窗，还是把正文居中放大，只要一句话、或者点一下，它就能自动帮你整理。
+
+---
+
+## 能做什么
+
+### 整页净化
+
+在弹窗里输入一句话，比如：
+
+> 隐藏右侧推荐和广告，把正文居中放大
+
+CleanWeb 会分析当前页面结构，AI 生成 CSS 规则，立即让页面变清爽。规则会保存到当前站点，下次访问自动生效。
+
+### 精准选择
+
+不想写指令？直接点。
+
+点击"进入元素选择模式"，鼠标在页面上悬停时会出现高亮框，点击你想处理的元素，会出现操作浮层：
+
+- **智能隐藏**：AI 自动判断最合理的隐藏范围，避免误删正文
+- **AI 修改**：输入你的要求，比如"把这个栏目变小一点""把背景换成浅色"
+
+### 规则管理
+
+所有为当前站点生成的规则都保存在"规则"Tab 里：
+
+- 查看每条规则的作用说明
+- 一键启用 / 禁用
+- 删除单条规则
+- 展开查看并编辑生成的 CSS
+- 点击"恢复"还原页面原貌
+
+---
+
+## 怎么配置 AI
+
+第一次使用如果没有配置 AI Key，插件会显示提示横幅，点击"去设置"即可：
+
+- **API Key**：你的 LLM API 密钥
+- **Base URL**：OpenAI 兼容服务的地址，例如 `https://api.openai.com/v1`
+- **Model**：模型 ID，例如 `gpt-4o-mini`、`deepseek-v4-flash`
+
+支持所有兼容 OpenAI `/v1/chat/completions` 的服务。
+
+---
+
+## 技术栈
+
+- WXT + Vue 3 + TypeScript
+- Tailwind CSS v4
+- Chrome Extension Manifest V3
+- OpenAI 兼容的 LLM API
+
+---
+
+## 👨‍💻 本地开发
+
+如果你想自己修改或调试这个插件：
+
+```bash
+# 安装依赖
+npm install
+
+# 启动开发模式（会生成一个可直接加载的扩展目录）
+npm run dev
 ```
 
-## 工作原理
+然后按 WXT 提示，在 Chrome 扩展管理页面加载生成的扩展目录即可调试。
 
-```mermaid
-flowchart TD
-    A["用户打开目标网页"] --> B["点击插件 Popup"]
-    B --> C["输入自然语言指令"]
-    C --> D["Popup 请求 Content Script 获取 DOM 摘要"]
-    D --> E["Content Script 扫描页面结构"]
-    E --> F["Popup 调用 LLM 生成 CSS 规则"]
-    F --> G["Content Script 注入 CSS"]
-    G --> H["页面即时变化"]
-    H --> I["用户保存规则"]
-    I --> J["下次访问该站点自动应用"]
-```
-
-### 1. DOM 摘要采集
-
-Content Script 扫描页面，收集最多 80 个可见元素的结构化摘要，而非完整 HTML：
-
-- 过滤不可见元素（`display: none`、`visibility: hidden`、`opacity: 0`）
-- 过滤面积小于 900px² 的元素
-- 按面积从大到小排序，优先保留主要内容区域
-- 每个元素包含：选择器、标签名、id、className、role、aria-label、文本摘要、位置尺寸
-
-选择器生成优先使用稳定标识：`id` → `aria-label` → `role` → `class`，避免过深的层级选择器。
-
-### 2. AI 生成 CSS
-
-将用户指令与 DOM 摘要发送给 LLM，模型只返回 JSON 格式的 CSS 规则：
-
-```json
-{
-  "css": ".sidebar, .ads { display: none !important; } .main { max-width: 900px; margin: 0 auto; }",
-  "explanation": "隐藏侧边栏和广告，扩大正文区域"
-}
-```
-
-设计原则：
-- 只生成 CSS，不生成或执行 JS
-- 使用稳定选择器，避免破坏页面交互
-- CSS 规则尽量只影响干扰区域
-
-### 3. 注入与持久化
-
-Content Script 在页面头部创建单个 `<style>` 标签，注入生成的 CSS。规则按网站 hostname 保存到浏览器本地存储，下次访问自动应用。点击"恢复"按钮可移除注入样式并删除规则。
+---
 
 ## 项目结构
 
-```text
+```
 entrypoints/
-  popup/App.vue          # 插件弹窗界面
-  content.ts             # 页面脚本：DOM 扫描、CSS 注入
-  background.ts          # 后台服务 Worker
+  popup/App.vue          # 扩展弹窗界面
+  content.ts             # 页面脚本：DOM 扫描、CSS 注入、元素选择器
+  background.ts          # 后台服务：处理 AI 请求
 
 utils/
   dom-summary.ts         # DOM 摘要采集与选择器生成
-  storage.ts             # 规则存储（按 hostname）
-  llm.ts                 # LLM 集成接口
+  storage.ts             # 规则按站点存储
+  llm.ts                 # LLM 调用与规则生成
 
 types/cleanweb.ts        # 类型定义
 ```
 
-## 技术栈
+---
 
-- WXT + Vue + TypeScript
-- Tailwind CSS v4
-- Chrome Extension Manifest V3
-- OpenAI / 兼容 OpenAI 的 LLM API
+## 设计原则
 
-## 本地开发
-
-```bash
-npm install
-npm run dev
-```
-
-按 WXT 提示在 Chrome 中加载生成的扩展即可调试。
+- 只生成 CSS，不注入或执行 JavaScript
+- 优先使用稳定选择器，避免误伤页面核心功能
+- 规则按站点持久化，自动生效，随时可恢复
