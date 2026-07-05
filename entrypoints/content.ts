@@ -26,6 +26,7 @@ const RULE_MARKER_PREFIX = 'cleanweb:has-rule:';
 const GUARD_FAILSAFE_MS = 1500;
 const MIN_HIDE_TARGET_AREA = 900;
 const MAX_HIDE_TARGET_AREA_RATIO = 0.72;
+const MAX_SMART_HIDE_PARENT_DEPTH = 2;
 
 let pickerState: PickerState | null = null;
 
@@ -467,10 +468,11 @@ function handlePickerMouseMove(event: MouseEvent) {
   }
 
   state.hoveredElement = target;
+  const hideTarget = findSmartHideTarget(target);
 
-  // 未选中时显示悬停描边
+  // 未选中时显示实际将要处理的目标，避免 hover 和点击结果不一致。
   if (!state.selectedElement) {
-    renderHoverOutline(target);
+    renderHoverOutline(hideTarget);
   }
 }
 
@@ -575,8 +577,9 @@ async function handleHideSelectedElement(event: MouseEvent) {
   if (button?.disabled) return;
 
   const state = pickerState;
-  const target = state?.selectedTarget;
-  if (!target) return;
+  const target = state?.selectedElement;
+  const hideTarget = state?.selectedTarget;
+  if (!target || !hideTarget) return;
 
   setPickerButtonLoading(button, '处理中');
   if (state) {
@@ -585,7 +588,7 @@ async function handleHideSelectedElement(event: MouseEvent) {
 
   try {
     const context = collectElementContext(target, { ancestorDepth: 4, siblingCount: 4 });
-    context.recommendedTarget = toElementContextItem(target);
+    context.recommendedTarget = toElementContextItem(hideTarget);
 
     const message: SmartHideMessage = { type: 'CLEANWEB_SMART_HIDE', context };
     const response = await browser.runtime.sendMessage(message);
@@ -927,7 +930,7 @@ function findSmartHideTarget(element: HTMLElement) {
   let current: HTMLElement | null = element;
   let depth = 0;
 
-  while (current && depth < 4) {
+  while (current && depth < MAX_SMART_HIDE_PARENT_DEPTH) {
     const parent: HTMLElement | null = current.parentElement;
     if (!parent) {
       break;

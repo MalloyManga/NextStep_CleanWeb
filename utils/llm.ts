@@ -32,6 +32,8 @@ interface JsonCompletionResult {
 }
 
 const PAGE_GENERATION_MAX_TOKENS = 6000;
+const SMART_HIDE_MAX_TOKENS = 1600;
+const AI_MODIFY_MAX_TOKENS = 3200;
 const AI_REQUEST_TIMEOUT_MS = 60_000;
 
 const FALLBACK_CSS = `aside,
@@ -271,11 +273,13 @@ export async function generateSmartHideRule(request: SmartHideRequest): Promise<
 Rules:
 - Return a strict JSON object with fields: "selector", "css", "explanation".
 - The selector should target the smallest reasonable container that removes the visual noise.
+- The selector must be the selected element, the recommended target, or at most two parent levels above the selected element.
 - Do not hide html, body, main, article, or any area larger than 70% of the viewport.
 - Do not hide ancestors that contain many unrelated links/buttons or page sections.
 - Use stable selectors: id, aria-label, role, then semantic class names.
 - Prefer the recommended target if one is provided, but improve it if possible.
-- CSS must only hide the target, and may use !important if necessary.`,
+- CSS must only hide the target, and may use !important if necessary.
+- Return the JSON object directly. Do not include reasoning text.`,
     },
     {
       role: 'user' as const,
@@ -283,7 +287,7 @@ Rules:
     },
   ];
 
-  const completion = await requestJsonCompletion(config, messages, 1024);
+  const completion = await requestJsonCompletion(config, messages, SMART_HIDE_MAX_TOKENS);
   if (!completion.raw) {
     return {
       action: 'smart-hide',
@@ -299,7 +303,7 @@ Rules:
     const nextCss = sanitizeSelectedElementCss(
       parsed.css?.trim() || `${nextSelector} {\n  display: none !important;\n}`,
       request.context,
-      { allowHide: true },
+      { allowHide: true, maxAncestorDepth: 2 },
     );
 
     return {
@@ -342,7 +346,8 @@ Rules:
 - Do not hide/remove content unless the user's instruction explicitly says hide, remove, delete, or discard.
 - Do not generate JavaScript, HTML, or remote resources.
 - Use !important when necessary to override existing styles.
-- Keep the CSS scoped and safe.`,
+- Keep the CSS scoped and safe.
+- Return the JSON object directly. Do not include reasoning text.`,
     },
     {
       role: 'user' as const,
@@ -350,29 +355,30 @@ Rules:
     },
   ];
 
-  const completion = await requestJsonCompletion(config, messages, 1024);
+  const completion = await requestJsonCompletion(config, messages, AI_MODIFY_MAX_TOKENS);
   if (!completion.raw) {
     return {
       action: 'ai-modify',
-      css: '',
-      explanation: 'AI returned an empty response.',
+      css: fallbackAiModifyCss(request.context, request.instruction),
+      explanation: 'AI returned an empty response. CleanWeb used a conservative local style.',
     };
   }
 
   try {
     const parsed = parseJsonObject(completion.raw) as Partial<AiModifyResult>;
     const allowHide = hasExplicitHideIntent(request.instruction);
+    const sanitizedCss = sanitizeSelectedElementCss(parsed.css?.trim() || '', request.context, { allowHide });
 
     return {
       action: 'ai-modify',
-      css: sanitizeSelectedElementCss(parsed.css?.trim() || '', request.context, { allowHide }),
-      explanation: parsed.explanation?.trim() || '',
+      css: sanitizedCss || fallbackAiModifyCss(request.context, request.instruction),
+      explanation: parsed.explanation?.trim() || 'AI returned CSS that could not be safely applied, so CleanWeb used a conservative local style.',
     };
   } catch {
     return {
       action: 'ai-modify',
-      css: '',
-      explanation: 'AI response could not be parsed.',
+      css: fallbackAiModifyCss(request.context, request.instruction),
+      explanation: 'AI response could not be parsed. CleanWeb used a conservative local style.',
     };
   }
 }
@@ -720,10 +726,24 @@ function fallbackSmartHideCss(context: SelectedElementContext): string {
   return `${selector} {\n  display: none !important;\n}`;
 }
 
+function fallbackAiModifyCss(context: SelectedElementContext, instruction: string): string {
+  const selector = getSelectedElementSelector(context);
+  const wantsEmphasis = /highlight|emphasize|醒目|突出|高亮|强调|放大|变大/.test(instruction);
+
+  return `${selector} {
+  border-radius: ${wantsEmphasis ? '14px' : '10px'} !important;
+  box-shadow: ${wantsEmphasis ? '0 10px 28px rgb(46 111 99 / 22%)' : '0 6px 18px rgb(23 32 38 / 12%)'} !important;
+  outline: ${wantsEmphasis ? '2px solid rgb(46 111 99 / 40%)' : '1px solid rgb(46 111 99 / 18%)'} !important;
+  background: rgb(255 255 255 / 96%) !important;
+  padding: ${wantsEmphasis ? '14px' : '10px'} !important;
+  transition: all 160ms ease !important;
+}`;
+}
+
 function sanitizeSelectedElementCss(
   css: string,
   context: SelectedElementContext,
-  options: { allowHide: boolean },
+  options: { allowHide: boolean; maxAncestorDepth?: number },
 ) {
   if (!css.trim()) return '';
 
@@ -731,7 +751,7 @@ function sanitizeSelectedElementCss(
     context.selected.selector,
     context.recommendedTarget?.selector,
     ...context.ancestors
-      .filter((ancestor) => isSafeSelectedAncestor(ancestor))
+      .filter((ancestor) => isSafeSelectedAncestor(ancestor, options.maxAncestorDepth))
       .map((ancestor) => ancestor.selector),
   ].filter((selector): selector is string => Boolean(selector)));
   const rules: string[] = [];
@@ -787,8 +807,9 @@ function getSelectedElementSelector(context: SelectedElementContext) {
   return context.recommendedTarget?.selector ?? context.selected.selector;
 }
 
-function isSafeSelectedAncestor(ancestor: ElementContextItem) {
+function isSafeSelectedAncestor(ancestor: ElementContextItem, maxDepth?: number) {
   return (
+    (maxDepth === undefined || ancestor.depth <= maxDepth) &&
     ancestor.tag !== 'main' &&
     ancestor.tag !== 'article' &&
     (ancestor.areaRatio ?? 0) <= 0.7 &&
