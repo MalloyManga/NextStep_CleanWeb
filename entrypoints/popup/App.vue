@@ -525,12 +525,10 @@ async function startElementPicker() {
 
         <ModeTabs v-model="mode" />
 
-        <CleanModePanel v-if="mode === 'clean'" v-model:instruction="instruction" :generated-css="generatedCss"
-          :ai-debug-text="selectedAiDebugText" :rule-drafts="generatedRuleDrafts" :selected-draft-id="selectedDraftId" :is-busy="isBusy"
-          :has-api-key="hasApiKey" @update:instruction="instruction = $event" @update:generated-css="updateGeneratedCss"
-          @select-rule-draft="selectRuleDraft" @toggle-rule-draft="toggleRuleDraft"
-          @commit-generated-css="commitGeneratedCss" @analyze="collectDomSummary" @cancel="cancelGeneration"
-          @go-settings="mode = 'settings'" />
+        <CleanModePanel v-if="mode === 'clean'" v-model:instruction="instruction"
+          :is-busy="isBusy" :has-api-key="hasApiKey"
+          @update:instruction="instruction = $event" @analyze="collectDomSummary"
+          @cancel="cancelGeneration" @go-settings="mode = 'settings'" />
         <SelectModePanel v-else-if="mode === 'select'" :is-busy="isBusy" :has-saved-rule="hasSavedRule" @start-picker="prepareElementPicker" />
         <RulesPanel v-else :generated-css="generatedCss" :ai-debug-text="selectedAiDebugText"
           :rule-drafts="generatedRuleDrafts" :selected-draft-id="selectedDraftId" :is-busy="isBusy"
