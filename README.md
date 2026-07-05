@@ -1,85 +1,96 @@
-# CleanWeb
+# CleanWeb 🧹
 
-CleanWeb 是一个自然语言驱动的网页净化浏览器插件。用户输入一句话，例如“隐藏右侧推荐和广告，把正文居中放大”，插件分析页面结构，生成并注入 CSS 规则，让页面立即变得更适合阅读。
+一个用自然语言控制的网页净化工具。当你遇到广告太多、布局混乱的网页时，只需说一句话，比如"把右边的推荐栏藏起来，让文章居中显示"，它就能自动优化页面，让阅读体验变得更好。
 
-```text
-臃肿网页 -> 输入自然语言 -> 生成 CSS 规则 -> 页面立即变清爽 -> 保存规则 -> 下次自动生效
+**举个例子：**
+```
+原来：满屏广告、弹窗、侧边推荐 📢 → 输入"只保留正文，去掉所有干扰" ✨ → 结果：清爽的阅读页面 📖
 ```
 
-## 工作原理
+## 🤔 它是怎么工作的？
 
-```mermaid
-flowchart TD
-    A["用户打开目标网页"] --> B["点击插件 Popup"]
-    B --> C["输入自然语言指令"]
-    C --> D["Popup 请求 Content Script 获取 DOM 摘要"]
-    D --> E["Content Script 扫描页面结构"]
-    E --> F["Popup 调用 LLM 生成 CSS 规则"]
-    F --> G["Content Script 注入 CSS"]
-    G --> H["页面即时变化"]
-    H --> I["用户保存规则"]
-    I --> J["下次访问该站点自动应用"]
-```
+简单来说，就是"看页面 → 理解你的需求 → 变清爽"三个步骤：
 
-### 1. DOM 摘要采集
+1. **🔍 扫描页面**：插件会悄悄分析当前网页的结构，找出哪些是正文、哪些是广告、哪些是侧边栏
+2. **🧠 AI 理解**：把你的需求和页面结构一起发给 AI，AI 会生成对应的样式规则
+3. **✨ 即时生效**：生成的样式立刻应用到页面上，你马上就能看到效果
 
-Content Script 扫描页面，收集最多 80 个可见元素的结构化摘要，而非完整 HTML：
+## ✨ 主要功能
 
-- 过滤不可见元素（`display: none`、`visibility: hidden`、`opacity: 0`）
-- 过滤面积小于 900px² 的元素
-- 按面积从大到小排序，优先保留主要内容区域
-- 每个元素包含：选择器、标签名、id、className、role、aria-label、文本摘要、位置尺寸
+- **🗣️ 自然语言控制**：用日常说话的方式描述你想要的效果
+- **👁️ 即时预览**：修改立刻生效，不满意可以随时撤销
+- **🤖 智能识别**：自动区分正文和干扰元素
+- **💾 规则记忆**：对同一个网站的修改会自动保存，下次访问时自动应用
+- **↩️ 一键恢复**：随时可以恢复到页面原始状态
 
-选择器生成优先使用稳定标识：`id` → `aria-label` → `role` → `class`，避免过深的层级选择器。
+## 📖 如何使用
 
-### 2. AI 生成 CSS
+1. 📦 在浏览器中安装插件
+2. 🌐 打开一个你觉得"脏乱"的网页
+3. 🖱️ 点击浏览器工具栏上的插件图标
+4. ✏️ 在输入框里描述你想要的效果，比如：
+   - "隐藏所有广告和弹窗"
+   - "把文章字体放大，行间距调大"
+   - "去掉右侧边栏，让正文占满宽度"
+5. 🚀 点击应用，页面马上变清爽
 
-将用户指令与 DOM 摘要发送给 LLM，模型只返回 JSON 格式的 CSS 规则：
+## 🛠️ 技术栈
 
-```json
-{
-  "css": ".sidebar, .ads { display: none !important; } .main { max-width: 900px; margin: 0 auto; }",
-  "explanation": "隐藏侧边栏和广告，扩大正文区域"
-}
-```
+- **框架**：Vue 3 + TypeScript 🟢
+- **构建工具**：WXT（专门用来做浏览器插件）🔧
+- **样式**：Tailwind CSS 🎨
+- **AI 接口**：兼容 OpenAI API 的任意大语言模型 🤖
 
-设计原则：
-- 只生成 CSS，不生成或执行 JS
-- 使用稳定选择器，避免破坏页面交互
-- CSS 规则尽量只影响干扰区域
+## 👨‍💻 本地开发
 
-### 3. 注入与持久化
-
-Content Script 在页面头部创建单个 `<style>` 标签，注入生成的 CSS。规则按网站 hostname 保存到浏览器本地存储，下次访问自动应用。点击"恢复"按钮可移除注入样式并删除规则。
-
-## 项目结构
-
-```text
-entrypoints/
-  popup/App.vue          # 插件弹窗界面
-  content.ts             # 页面脚本：DOM 扫描、CSS 注入
-  background.ts          # 后台服务 Worker
-
-utils/
-  dom-summary.ts         # DOM 摘要采集与选择器生成
-  storage.ts             # 规则存储（按 hostname）
-  llm.ts                 # LLM 集成接口
-
-types/cleanweb.ts        # 类型定义
-```
-
-## 技术栈
-
-- WXT + Vue + TypeScript
-- Tailwind CSS v4
-- Chrome Extension Manifest V3
-- OpenAI / 兼容 OpenAI 的 LLM API
-
-## 本地开发
+如果你想自己修改或调试这个插件：
 
 ```bash
+# 安装依赖
 npm install
+
+# 启动开发模式（会生成一个可直接加载的扩展目录）
 npm run dev
+
+# 构建生产版本
+npm run build
+
+# 打包成 zip 文件（用于发布）
+npm run zip
 ```
 
-按 WXT 提示在 Chrome 中加载生成的扩展即可调试。
+开发模式启动后，按照提示在 Chrome 浏览器中加载生成的 `.output/chrome-mv3` 目录即可。
+
+## 📁 项目结构
+
+```
+├── entrypoints/       # 🚪 插件入口文件
+│   ├── popup/         # 🪟 弹出窗口界面
+│   ├── content.ts     # 📄 页面脚本（负责扫描和注入样式）
+│   └── background.ts  # ⚙️ 后台服务
+├── components/        # 🧩 Vue 组件
+├── utils/             # 🛠️ 工具函数
+│   ├── dom-summary.ts   # 🔍 页面结构分析
+│   ├── llm.ts           # 🤖 AI 接口
+│   ├── storage.ts       # 💾 规则存储
+│   └── css-format.ts    # 🎨 CSS 格式化工具
+└── types/             # 📝 TypeScript 类型定义
+```
+
+## ⚙️ 配置
+
+插件支持通过 `.env` 文件配置 AI 参数：
+
+- `VITE_LLM_BASE_URL`：AI 接口地址（默认 `https://api.openai.com/v1`）
+- `VITE_LLM_MODEL`：使用的模型名称（默认 `gpt-4o-mini`）
+- `VITE_LLM_API_KEY`：API 密钥
+
+## ⚠️ 注意事项
+
+- 🔒 插件只修改页面样式（CSS），不会执行任何 JavaScript，安全可靠
+- 📱 所有规则都保存在你本地的浏览器中，不会上传到任何服务器
+- 🔑 需要你自己提供 AI API 密钥才能使用完整功能
+
+---
+
+让阅读更愉快 ✨
