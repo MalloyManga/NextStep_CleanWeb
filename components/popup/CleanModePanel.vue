@@ -51,7 +51,7 @@ function onSendButtonClick() {
     <!-- P0-2：未配置 AI Key 提示 -->
     <div v-if="!hasApiKey"
       class="flex items-center justify-between gap-2 rounded-lg border border-brand/25 bg-brand-tint px-3 py-2">
-      <span class="min-w-0 text-xs text-ink-soft">未配置 AI Key，将使用通用规则</span>
+      <span class="min-w-0 text-xs text-ink-soft">未配置 AI Key，无法使用 AI 净化（点选隐藏仍可离线使用）</span>
       <button type="button"
         class="shrink-0 rounded-md bg-brand px-2 py-1 text-xs font-medium text-white transition hover:bg-brand-dark"
         @click="$emit('go-settings')">

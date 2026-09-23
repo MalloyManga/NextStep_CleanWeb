@@ -111,12 +111,7 @@ export async function generateCssRule(input: GenerateCssInput): Promise<Generate
       instruction: input.instruction,
       summaryCount: input.domSummary.length,
     });
-    return createFallbackResult('Missing API key. Applied the built-in fallback rule.', {
-      ...debugBase,
-      responseFinishedAt: Date.now(),
-      requestError: 'Missing API key',
-      usedFallback: true,
-    });
+    throw new Error('未配置 AI Key：请先在设置中填写 API Key 后再使用整页净化。');
   }
 
   console.info('[CleanWeb][AI] request', {
@@ -327,11 +322,7 @@ export async function generateAiModifyRule(request: AiModifyRequest): Promise<Ai
   const config = await resolveConfig();
 
   if (!config.apiKey) {
-    return {
-      action: 'ai-modify',
-      css: fallbackAiModifyCss(request.context, request.instruction),
-      explanation: 'Missing API key. CleanWeb used a conservative local style.',
-    };
+    throw new Error('未配置 AI Key：请先在设置中填写 API Key 后再使用 AI 修改。');
   }
 
   const contextText = formatSelectedElementContext(request.context);
