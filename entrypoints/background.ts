@@ -9,6 +9,7 @@ import type {
   StartGenerationMessage,
 } from '../types/cleanweb';
 import { formatCssForPreview } from '../utils/css-format';
+import { getEnabledDraftCss, getEnabledDraftInstruction } from '../utils/rule-drafts';
 import { FALLBACK_CSS, generateAiModifyRule, generateCssRule, generateSmartHideRule } from '../utils/llm';
 import { getGenerationState, saveGenerationState } from '../utils/storage';
 
@@ -119,7 +120,7 @@ async function runGenerationTask(message: StartGenerationMessage): Promise<Clean
     await browser.tabs.sendMessage(message.tabId, {
       type: 'CLEANWEB_APPLY_RULE',
       css,
-      instruction: getEnabledDraftInstruction(nextDrafts),
+      instruction: getEnabledDraftInstruction(nextDrafts, (n) => `Enabled ${n} generated rules`),
       save: true,
       drafts: nextDrafts,
     } satisfies ApplyRuleMessage);
@@ -229,25 +230,6 @@ function createGeneratedRuleDraft(input: Omit<GeneratedRuleDraft, 'id' | 'enable
     enabled: true,
     createdAt: Date.now(),
   };
-}
-
-function getEnabledDraftCss(drafts: GeneratedRuleDraft[]) {
-  return drafts
-    .filter((draft) => draft.enabled)
-    .slice()
-    .reverse()
-    .map((draft) => draft.css)
-    .join('\n\n');
-}
-
-function getEnabledDraftInstruction(drafts: GeneratedRuleDraft[]) {
-  const enabledDrafts = drafts.filter((draft) => draft.enabled);
-
-  if (enabledDrafts.length === 1) {
-    return enabledDrafts[0].instruction;
-  }
-
-  return `Enabled ${enabledDrafts.length} generated rules`;
 }
 
 function createIdleGenerationState(hostname: string): GenerationState {

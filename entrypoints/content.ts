@@ -13,6 +13,7 @@ import type {
 import { formatCssForPreview } from '../utils/css-format';
 import { buildReadableSelector, collectDomSummary, collectElementContext, toElementContextItem } from '../utils/dom-summary';
 import { getHostname, getRule, removeRule, saveRule } from '../utils/storage';
+import { getEnabledDraftCss, getEnabledDraftInstruction } from '../utils/rule-drafts';
 
 const STYLE_ID = 'cleanweb-generated-style';
 const PICKER_LAYER_ID = 'cleanweb-picker-layer';
@@ -614,7 +615,7 @@ async function handleHideSelectedElement(event: MouseEvent) {
     injectCss(nextCss);
     await saveRule(hostname, {
       css: nextCss,
-      instruction: getEnabledDraftInstruction(nextDrafts),
+      instruction: getEnabledDraftInstruction(nextDrafts, (n) => `已启用 ${n} 条规则`),
       updatedAt: Date.now(),
       drafts: nextDrafts,
     });
@@ -858,7 +859,7 @@ function createAiPanelContent() {
       injectCss(nextCss);
       await saveRule(hostname, {
         css: nextCss,
-        instruction: getEnabledDraftInstruction(nextDrafts),
+        instruction: getEnabledDraftInstruction(nextDrafts, (n) => `已启用 ${n} 条规则`),
         updatedAt: Date.now(),
         drafts: nextDrafts,
       });
@@ -1028,25 +1029,6 @@ function getExistingRuleDrafts(rule: Awaited<ReturnType<typeof getRule>>): Gener
     createdAt: rule.updatedAt,
     source: 'legacy',
   }];
-}
-
-function getEnabledDraftCss(drafts: GeneratedRuleDraft[]) {
-  return drafts
-    .filter((draft) => draft.enabled)
-    .slice()
-    .reverse()
-    .map((draft) => draft.css)
-    .join('\n\n');
-}
-
-function getEnabledDraftInstruction(drafts: GeneratedRuleDraft[]) {
-  const enabledDrafts = drafts.filter((draft) => draft.enabled);
-
-  if (enabledDrafts.length === 1) {
-    return enabledDrafts[0].instruction;
-  }
-
-  return `已启用 ${enabledDrafts.length} 条规则`;
 }
 
 export { buildReadableSelector, collectDomSummary };

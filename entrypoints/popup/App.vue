@@ -24,6 +24,7 @@ import type {
   StartElementPickerMessage,
 } from '../../types/cleanweb'
 import { getLlmSettings, getRule, saveLlmSettings } from '../../utils/storage'
+import { getEnabledDraftCss, getEnabledDraftInstruction } from '../../utils/rule-drafts'
 
 const MODE_STORAGE_KEY = 'local:cleanweb:popup-mode'
 
@@ -273,32 +274,13 @@ function prepareElementPicker() {
   startElementPicker()
 }
 
-function getEnabledDraftCss() {
-  return generatedRuleDrafts.value
-    .filter((draft) => draft.enabled)
-    .slice()
-    .reverse()
-    .map((draft) => draft.css)
-    .join('\n\n')
-}
-
-function getEnabledDraftInstruction() {
-  const enabledDrafts = generatedRuleDrafts.value.filter((draft) => draft.enabled)
-
-  if (enabledDrafts.length === 1) {
-    return enabledDrafts[0].instruction
-  }
-
-  return `已启用 ${enabledDrafts.length} 条生成规则`
-}
-
 async function applyEnabledDrafts() {
-  const css = getEnabledDraftCss()
+  const css = getEnabledDraftCss(generatedRuleDrafts.value)
 
   await sendToActiveTab<ApplyRuleMessage>({
     type: 'CLEANWEB_APPLY_RULE',
     css,
-    instruction: getEnabledDraftInstruction(),
+    instruction: getEnabledDraftInstruction(generatedRuleDrafts.value, (n) => `已启用 ${n} 条生成规则`),
     save: true,
     drafts: generatedRuleDrafts.value,
   })
