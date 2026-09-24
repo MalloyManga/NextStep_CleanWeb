@@ -1,24 +1,39 @@
-import OpenAI from 'openai';
 import type {
   AiDebugLog,
   AiModifyRequest,
   AiModifyResult,
   DomSummaryItem,
-  ElementContextItem,
   LlmSettings,
   SelectedElementContext,
   SmartHideRequest,
   SmartHideResult,
 } from '../types/cleanweb';
-import { getLlmSettings } from './storage';
 import {
   getProtectedTerms,
-  getSelectedElementSelector,
   hasExplicitHideIntent,
-  isSidebarLikeContext,
   sanitizeGeneratedCss,
   sanitizeSelectedElementCss,
 } from './css-safety';
+import { getDefaultLlmConfig, resolveConfig } from './llm-config';
+import type { JsonCompletionResult } from './llm-request';
+import {
+  AI_MODIFY_MAX_TOKENS,
+  PAGE_GENERATION_MAX_TOKENS,
+  SMART_HIDE_MAX_TOKENS,
+  requestJsonCompletion,
+} from './llm-request';
+import {
+  getEmptyResponseExplanation,
+  getErrorMessage,
+  parseJsonObject,
+} from './llm-response';
+import {
+  FALLBACK_CSS,
+  fallbackAiModifyCss,
+  fallbackSmartHideCss,
+} from './llm-fallback';
+
+export { getDefaultLlmConfig };
 
 export interface GenerateCssInput {
   instruction: string;
@@ -31,73 +46,6 @@ export interface GenerateCssResult {
   explanation: string;
   usedFallback: boolean;
   debug: AiDebugLog;
-}
-
-interface JsonCompletionResult {
-  raw: string;
-  responseSnapshot: string;
-  retriedWithoutResponseFormat: boolean;
-}
-
-const PAGE_GENERATION_MAX_TOKENS = 6000;
-const SMART_HIDE_MAX_TOKENS = 1600;
-const AI_MODIFY_MAX_TOKENS = 3200;
-const AI_REQUEST_TIMEOUT_MS = 60_000;
-
-const FALLBACK_CSS = `aside,
-[class*="sidebar"],
-[class*="ad"],
-[class*="recommend"] {
-  display: none !important;
-}
-
-main,
-article {
-  max-width: 860px !important;
-  margin-left: auto !important;
-  margin-right: auto !important;
-  font-size: 18px !important;
-  line-height: 1.8 !important;
-}`;
-
-declare const __LLM_API_KEY__: string;
-declare const __LLM_BASE_URL__: string;
-declare const __LLM_MODEL__: string;
-
-export function getDefaultLlmConfig(): LlmSettings {
-  return {
-    apiKey: typeof __LLM_API_KEY__ !== 'undefined' ? __LLM_API_KEY__ : '',
-    baseUrl: typeof __LLM_BASE_URL__ !== 'undefined' ? __LLM_BASE_URL__ : '',
-    model: typeof __LLM_MODEL__ !== 'undefined' ? __LLM_MODEL__ : 'gpt-4o-mini',
-  };
-}
-
-async function resolveConfig(settings?: LlmSettings): Promise<LlmSettings> {
-  const defaults = getDefaultLlmConfig();
-  const fromStorage = await getLlmSettings();
-  const result = (
-    settings?.apiKey &&
-    settings?.baseUrl &&
-    settings?.model
-  ) ? settings : (
-    fromStorage?.apiKey &&
-    fromStorage?.baseUrl &&
-    fromStorage?.model
-  ) ? fromStorage : defaults;
-
-  return {
-    apiKey: result.apiKey.trim(),
-    baseUrl: result.baseUrl.trim(),
-    model: result.model.trim(),
-  }
-}
-
-function createClient(config: LlmSettings) {
-  return new OpenAI({
-    apiKey: config.apiKey,
-    ...(config.baseUrl ? { baseURL: config.baseUrl } : {}),
-    dangerouslyAllowBrowser: true,
-  });
 }
 
 export async function generateCssRule(input: GenerateCssInput): Promise<GenerateCssResult> {
@@ -393,87 +341,6 @@ Rules:
   }
 }
 
-async function requestJsonCompletion(
-  config: LlmSettings,
-  messages: Array<{ role: 'system' | 'user'; content: string }>,
-  maxTokens: number,
-): Promise<JsonCompletionResult> {
-  const client = createClient(config);
-  const withTimeout = createRequestTimeout(AI_REQUEST_TIMEOUT_MS);
-
-  try {
-    const response = await client.chat.completions.create({
-      model: config.model,
-      messages,
-      response_format: { type: 'json_object' },
-      max_tokens: maxTokens,
-    }, {
-      maxRetries: 0,
-      signal: withTimeout.signal,
-      timeout: AI_REQUEST_TIMEOUT_MS,
-    });
-
-    return {
-      raw: response.choices[0]?.message?.content?.trim() ?? '',
-      responseSnapshot: stringifyResponseSnapshot(response),
-      retriedWithoutResponseFormat: false,
-    };
-  } catch (error) {
-    if (withTimeout.isTimedOut()) {
-      throw new Error(`AI request exceeded ${Math.round(AI_REQUEST_TIMEOUT_MS / 1000)} seconds.`);
-    }
-
-    console.warn('[CleanWeb][AI] response_format request failed, retrying without it', {
-      model: config.model,
-      error: getErrorMessage(error),
-    });
-
-    const retryTimeout = createRequestTimeout(AI_REQUEST_TIMEOUT_MS);
-    try {
-      const response = await client.chat.completions.create({
-        model: config.model,
-        messages,
-        max_tokens: maxTokens,
-      }, {
-        maxRetries: 0,
-        signal: retryTimeout.signal,
-        timeout: AI_REQUEST_TIMEOUT_MS,
-      });
-
-      return {
-        raw: response.choices[0]?.message?.content?.trim() ?? '',
-        responseSnapshot: stringifyResponseSnapshot(response),
-        retriedWithoutResponseFormat: true,
-      };
-    } catch (retryError) {
-      if (retryTimeout.isTimedOut()) {
-        throw new Error(`AI request exceeded ${Math.round(AI_REQUEST_TIMEOUT_MS / 1000)} seconds.`);
-      }
-
-      throw retryError;
-    } finally {
-      retryTimeout.clear();
-    }
-  } finally {
-    withTimeout.clear();
-  }
-}
-
-function createRequestTimeout(ms: number) {
-  const controller = new AbortController();
-  let timedOut = false;
-  const timeoutId = globalThis.setTimeout(() => {
-    timedOut = true;
-    controller.abort();
-  }, ms);
-
-  return {
-    signal: controller.signal,
-    clear: () => globalThis.clearTimeout(timeoutId),
-    isTimedOut: () => timedOut,
-  };
-}
-
 function createFallbackResult(explanation: string, debug: AiDebugLog): GenerateCssResult {
   const css = FALLBACK_CSS;
 
@@ -488,169 +355,6 @@ function createFallbackResult(explanation: string, debug: AiDebugLog): GenerateC
       usedFallback: true,
     },
   };
-}
-
-function getEmptyResponseExplanation(responseSnapshot: string) {
-  if (responseSnapshot.includes('"reasoning_content"')) {
-    return 'AI spent the output budget on reasoning and returned no final JSON content. Applied the built-in fallback rule.';
-  }
-
-  return 'AI returned an empty response. Applied the built-in fallback rule.';
-}
-
-function parseJsonObject(raw: string): unknown {
-  try {
-    return JSON.parse(raw);
-  } catch {
-    const jsonLike = extractJsonObject(raw);
-    if (!jsonLike) {
-      throw new Error('No JSON object found in AI response');
-    }
-
-    return JSON.parse(jsonLike);
-  }
-}
-
-function extractJsonObject(raw: string) {
-  const fencedMatch = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-  if (fencedMatch?.[1]) {
-    return fencedMatch[1].trim();
-  }
-
-  const start = raw.indexOf('{');
-  const end = raw.lastIndexOf('}');
-  if (start === -1 || end === -1 || end <= start) {
-    return '';
-  }
-
-  return raw.slice(start, end + 1);
-}
-
-function fallbackSmartHideCss(context: SelectedElementContext): string {
-  const selector = context.recommendedTarget?.selector ?? context.selected.selector;
-  return `${selector} {\n  display: none !important;\n}`;
-}
-
-function fallbackAiModifyCss(context: SelectedElementContext, instruction: string): string {
-  if (hasIconOnlyIntent(instruction)) {
-    return fallbackIconOnlyCss(context);
-  }
-
-  const selector = getSelectedElementSelector(context);
-  const wantsEmphasis = /highlight|emphasize|醒目|突出|高亮|强调|放大|变大/.test(instruction);
-
-  return `${selector} {
-  border-radius: ${wantsEmphasis ? '14px' : '10px'} !important;
-  box-shadow: ${wantsEmphasis ? '0 10px 28px rgb(46 111 99 / 22%)' : '0 6px 18px rgb(23 32 38 / 12%)'} !important;
-  outline: ${wantsEmphasis ? '2px solid rgb(46 111 99 / 40%)' : '1px solid rgb(46 111 99 / 18%)'} !important;
-  background: rgb(255 255 255 / 96%) !important;
-  padding: ${wantsEmphasis ? '14px' : '10px'} !important;
-  transition: all 160ms ease !important;
-}`;
-}
-
-function fallbackIconOnlyCss(context: SelectedElementContext): string {
-  const selector = getSelectedElementSelector(context);
-  const layoutSelectors = getIconOnlyLayoutSelectors(context);
-
-  return `${layoutSelectors.join(', ')} {
-  width: 76px !important;
-  min-width: 76px !important;
-  max-width: 76px !important;
-  flex: 0 0 76px !important;
-  grid-template-columns: 76px !important;
-  padding-left: 0 !important;
-  padding-right: 0 !important;
-  overflow: hidden !important;
-}
-
-${selector} {
-  padding: 8px 6px !important;
-}
-
-${selector} > *,
-${selector} ul,
-${selector} nav,
-${selector} [class*="list"],
-${selector} [class*="group"] {
-  width: 100% !important;
-  max-width: 100% !important;
-  padding-left: 0 !important;
-  padding-right: 0 !important;
-  margin-left: 0 !important;
-  margin-right: 0 !important;
-}
-
-${selector} a,
-${selector} li,
-${selector} button,
-${selector} [role="button"],
-${selector} [role="menuitem"],
-${selector} [class*="item"],
-${selector} [class*="nav"],
-${selector} [class*="menu"] {
-  width: 52px !important;
-  min-width: 52px !important;
-  max-width: 52px !important;
-  height: 52px !important;
-  min-height: 52px !important;
-  margin: 6px auto !important;
-  padding: 0 !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  gap: 0 !important;
-  text-align: center !important;
-  font-size: 0 !important;
-  line-height: 0 !important;
-}
-
-${selector} svg,
-${selector} img,
-${selector} i,
-${selector} [class*="icon"],
-${selector} [class*="Icon"] {
-  display: inline-flex !important;
-  width: 24px !important;
-  min-width: 24px !important;
-  height: 24px !important;
-  min-height: 24px !important;
-  margin: 0 auto !important;
-  font-size: 24px !important;
-  line-height: 1 !important;
-  opacity: 1 !important;
-  visibility: visible !important;
-  flex: 0 0 auto !important;
-}
-
-${selector} [class*="text"],
-${selector} [class*="label"],
-${selector} [class*="title"],
-${selector} [class*="name"],
-${selector} [class*="badge"],
-${selector} [class*="coupon"],
-${selector} [class*="price"],
-${selector} [class*="promo"],
-${selector} [class*="discount"],
-${selector} [class*="footer"],
-${selector} [class*="copyright"],
-${selector} [class*="record"],
-${selector} footer {
-  display: none !important;
-}`;
-}
-
-function getIconOnlyLayoutSelectors(context: SelectedElementContext) {
-  return Array.from(new Set([
-    getSelectedElementSelector(context),
-    ...context.ancestors
-      .filter((ancestor) => ancestor.depth <= 2 && isSidebarLikeContext(ancestor))
-      .map((ancestor) => ancestor.selector),
-  ]));
-}
-
-function hasIconOnlyIntent(instruction: string) {
-  return /icon|icons|图标|仅保留图标|只保留图标|保留图标|去掉文本|隐藏文本|隐藏文字|仅图标|只显示图标/.test(instruction);
 }
 
 function formatSelectedElementContext(context: SelectedElementContext): string {
@@ -689,21 +393,6 @@ function formatSelectedElementContext(context: SelectedElementContext): string {
   }
 
   return lines.join('\n');
-}
-
-function getErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function stringifyResponseSnapshot(response: unknown) {
-  const text = JSON.stringify(response, null, 2);
-  const maxLength = 12000;
-
-  if (text.length <= maxLength) {
-    return text;
-  }
-
-  return `${text.slice(0, maxLength)}\n...<truncated>`;
 }
 
 export function isFallbackResult(result: GenerateCssResult): boolean {
