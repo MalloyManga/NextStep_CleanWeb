@@ -146,9 +146,9 @@ Rules:
 - Do not default to display:none. Use display:none mainly for explicit hiding/removal requests or obvious ads/recommendation/sidebar noise.
 - Never hide broad parent containers and then try to show their children again. CSS cannot reveal children of a display:none parent.
 - Never use bare tag selectors for hiding, such as "iframe", "div", "section", "main", "article", "body", or "html".
-- Hide ad shells/containers instead of only hiding ad images or iframes. Prefer selectors whose id/class/text contains ad, ads, advert, banner, kp_box, carousel_item_iframe, or promotion.
+- Hide ad shells/containers instead of only hiding ad images or iframes. Prefer selectors whose id/class/text contains ad, ads, advert, banner, promotion, or sponsor.
 - If the user asks to keep specific sections, do not hide any selector whose DOM summary text contains those kept section names.
-- Do not restyle carousel/swiper internals unless the user explicitly asks. Avoid setting display/grid/flex/width on selectors containing carousel, swiper, home-project-cont, or el-carousel.
+- Do not restyle carousel/swiper internals unless the user explicitly asks. Avoid setting display/grid/flex/width on selectors containing carousel or swiper.
 - Keep interaction safe: do not break login, comments, buttons, inputs, or main navigation unless the user explicitly asks.
 - Keep the result scoped to selectors that appear in the DOM summary.
 - The explanation should use the same language as the user's instruction when practical.
@@ -346,8 +346,8 @@ Rules:
 - Do not hide/remove content unless the user's instruction explicitly says hide, remove, delete, or discard.
 - If the user asks to keep only one internal section, hide sibling descendants inside the selected element instead of styling only the selected wrapper.
 - Never hide the selected wrapper when the user asks to keep something inside it.
-- Never hide any selected-context item whose text contains a section the user asked to keep, such as 活动日历, 社区推荐, 开源项目, or 精选博客.
-- If a listed descendant's selector or text directly matches the user's target, use that selector exactly. For example, prefer a selector like ".calendar.slide-box" when the user asks to keep 活动日历.
+- Never hide any selected-context item whose text contains a section the user explicitly asked to keep.
+- If a listed descendant's selector or text directly matches the user's target, use that selector exactly.
 - For icon-only sidebars, hide label text while preserving svg/img/i/icon elements. If labels are not wrapped in their own elements, set the menu item font-size to 0 and then restore width/height/font-size on svg, img, i, and icon elements.
 - Use computed style fields to fix layout gaps. For sidebars, override the selected element and safe sidebar-like ancestors with width, min-width, max-width, flex-basis, margin, and padding when needed.
 - Do not generate JavaScript, HTML, or remote resources.

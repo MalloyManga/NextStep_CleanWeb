@@ -4,6 +4,16 @@ import type {
   SelectedElementContext,
 } from '../types/cleanweb';
 
+// 护栏阈值：集中在此，方便按真实观感单点调整。
+// 视口面积为假设值（DOM 摘要未携带真实视口），需要更准时应改数据源而非改这里。
+const VIEWPORT_AREA_FALLBACK = 1920 * 1080;
+const MAX_HIDE_AREA_RATIO = 0.28;
+const MAX_HIDE_CHILD_COUNT = 24;
+const MAX_HIDE_LINK_COUNT = 18;
+const MAX_ANCESTOR_AREA_RATIO = 0.7;
+const MAX_ANCESTOR_LINK_COUNT = 16;
+const MAX_ANCESTOR_BUTTON_COUNT = 8;
+
 // ---- 整页净化 CSS 护栏 -------------------------------------------------
 
 export function sanitizeGeneratedCss(css: string, domSummary: DomSummaryItem[], instruction: string) {
@@ -66,7 +76,7 @@ function expandAdHideSelectors(selectors: string[], domSummary: DomSummaryItem[]
 }
 
 function isInnerAdAssetSelector(selector: string) {
-  return /iframe|img|carousel_item_iframe/i.test(selector);
+  return /iframe|img/i.test(selector);
 }
 
 function isUnsafeRestyleSelector(selector: string, declarations: string) {
@@ -74,7 +84,7 @@ function isUnsafeRestyleSelector(selector: string, declarations: string) {
     return false;
   }
 
-  return /carousel|swiper|home-project-cont|el-carousel/i.test(selector);
+  return /carousel|swiper/i.test(selector);
 }
 
 function normalizeNestedCardChrome(selectors: string[], declarations: string, chromeSelectors: string[]) {
@@ -152,7 +162,7 @@ function isUnsafeHideSelector(selector: string, domSummary: DomSummaryItem[], pr
     return true;
   }
 
-  if (/#app\b|#root\b|home-content|home_box_left|layout-content/i.test(normalizedSelector)) {
+  if (/#app\b|#root\b/i.test(normalizedSelector)) {
     return true;
   }
 
@@ -178,29 +188,22 @@ function isLikelyLayoutSelector(selector: string) {
 
 function isLikelyAdSelector(selector: string, item?: DomSummaryItem) {
   const text = `${selector} ${item?.id ?? ''} ${item?.className ?? ''} ${item?.text ?? ''}`.toLowerCase();
-  return /(^|[-_\s.#])(ad|ads|advert|banner|promotion|sponsor|kp_box|carousel_item_iframe)([-_\s.#]|\d|$)/i.test(text);
+  return /(^|[-_\s.#])(ad|ads|advert|banner|promotion|sponsor)([-_\s.#]|\d|$)/i.test(text);
 }
 
 function isLargeContainer(item: DomSummaryItem) {
-  const viewportArea = 1920 * 1080;
   const itemArea = item.rect.width * item.rect.height;
 
   return (
-    itemArea > viewportArea * 0.28 ||
-    (item.childElementCount ?? 0) > 24 ||
-    (item.linkCount ?? 0) > 18
+    itemArea > VIEWPORT_AREA_FALLBACK * MAX_HIDE_AREA_RATIO ||
+    (item.childElementCount ?? 0) > MAX_HIDE_CHILD_COUNT ||
+    (item.linkCount ?? 0) > MAX_HIDE_LINK_COUNT
   );
 }
 
 export function getProtectedTerms(instruction: string) {
-  const fixedTerms = ['开源项目', '精选博客', '社区推荐', '正文', '搜索框', '搜索按钮'];
+  // 只从用户指令里解析"保留 X"，不再硬编码任何站点栏目名。
   const protectedTerms = new Set<string>();
-
-  for (const term of fixedTerms) {
-    if (instruction.includes(term)) {
-      protectedTerms.add(term);
-    }
-  }
 
   const keepText = instruction.match(/(?:保留|只保留|仅保留)([^。；;]+)/)?.[1] ?? '';
   for (const term of keepText.split(/[、，,和与及\s]+/)) {
@@ -380,9 +383,9 @@ function isSafeSelectedAncestor(ancestor: ElementContextItem, maxDepth?: number)
     (maxDepth === undefined || ancestor.depth <= maxDepth) &&
     ancestor.tag !== 'main' &&
     ancestor.tag !== 'article' &&
-    (ancestor.areaRatio ?? 0) <= 0.7 &&
-    (ancestor.linkCount ?? 0) <= 16 &&
-    (ancestor.buttonCount ?? 0) <= 8
+    (ancestor.areaRatio ?? 0) <= MAX_ANCESTOR_AREA_RATIO &&
+    (ancestor.linkCount ?? 0) <= MAX_ANCESTOR_LINK_COUNT &&
+    (ancestor.buttonCount ?? 0) <= MAX_ANCESTOR_BUTTON_COUNT
   );
 }
 
