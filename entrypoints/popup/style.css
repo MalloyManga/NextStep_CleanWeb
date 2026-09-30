@@ -1,32 +1,50 @@
 ﻿@import "tailwindcss";
 
 @theme {
-  /* 文字 */
-  --color-ink: #1f2a2e;
-  --color-ink-soft: #4a555a;
-  --color-muted: #8a9499;
+  /* 直接用平台系统字体：SF/Segoe 自带光学字距与分级字重表，Inter 本项目并未打包 */
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text",
+    "Segoe UI", "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, monospace;
 
-  /* 底色：统一白底，去掉难分辨的双层米色 */
-  --color-paper: #ffffff;
+  /* 标签三档：Apple 用透明度而非不同灰阶表达层级 */
+  --color-ink: rgb(0 0 0 / 87%);
+  --color-ink-soft: rgb(0 0 0 / 56%);
+  --color-muted: rgb(98 98 102 / 64%);
+
+  /* 窗口分组底色 + 纯白卡片，层级靠底色与投影拉开，不靠描边 */
+  --color-window: #f2f2f7;
   --color-surface: #ffffff;
+  --color-chrome: rgb(246 246 248 / 72%);
+  --color-chrome-solid: rgb(246 246 248 / 94%);
 
-  /* 线条 */
-  --color-line: #e6e4df;
-  --color-line-strong: #d3d0c8;
+  /* 发丝线：Apple 分隔线是带透明度的冷灰，不是米色 */
+  --color-line: rgb(60 60 67 / 12%);
+  --color-line-strong: rgb(60 60 67 / 22%);
 
-  /* 品牌：保留绿白配色，只强调用 */
+  /* 品牌色仍是原有绿，只做单点可替换；tint 用 color-mix 跟随它一起适配深色模式 */
   --color-brand: #2e6f63;
   --color-brand-dark: #245a50;
-  --color-brand-soft: rgb(46 111 99 / 10%);
-  --color-brand-tint: rgb(46 111 99 / 6%);
+  --color-brand-tint: color-mix(in oklab, var(--color-brand) 12%, transparent);
+  --color-brand-hairline: color-mix(in oklab, var(--color-brand) 30%, transparent);
 
-  /* 状态 */
-  --color-danger: #b1452f;
-  --color-danger-soft: rgb(177 69 47 / 8%);
+  /* 状态色取 Apple 系统色相 */
+  --color-success: #34c759;
+  --color-warn: #ff9f0a;
+  --color-danger: #ff3b30;
+  --color-danger-tint: color-mix(in oklab, var(--color-danger) 12%, transparent);
+
+  /* 分段控件轨道 / 指示块；开关滑块单独一个 token，深色下指示块变灰但滑块仍是白的 */
+  --color-track: rgb(118 118 128 / 13%);
+  --color-thumb: #ffffff;
+  --color-knob: #ffffff;
 
   /* 代码 */
   --color-code: #101817;
   --color-code-text: #d7f0e6;
+
+  /* Apple 的 spring 落地成曲线：damping≈1.0、response 0.3~0.4，无过冲 */
+  --ease-fluid: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-press: cubic-bezier(0.1, 0.82, 0.25, 1);
 }
 
 *,
@@ -44,12 +62,23 @@ body,
   overflow-x: hidden;
 }
 
+/* 固定高度让浮动 chrome 有确定的滚动容器，也避免切换面板时窗口高度跳动 */
+body,
+#app {
+  height: 560px;
+}
+
+:root {
+  color-scheme: light dark;
+}
+
 body {
   margin: 0;
   color: var(--color-ink);
-  background: var(--color-paper);
-  font-family: "Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
-    "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: var(--color-window);
+  font-family: var(--font-sans);
+  font-optical-sizing: auto;
+  -webkit-font-smoothing: antialiased;
   scrollbar-width: none;
 }
 
@@ -74,10 +103,231 @@ input {
 
 button {
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
 
 button:disabled {
   cursor: not-allowed;
+}
+
+/* 排版：字距随字号变，小字略松、大字略紧，不能一套 letter-spacing 通吃 */
+.cw-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.3;
+  color: var(--color-muted);
+}
+
+.cw-title {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+  line-height: 1.2;
+}
+
+.cw-body {
+  font-size: 13px;
+  letter-spacing: 0.005em;
+  line-height: 1.5;
+}
+
+.cw-footnote {
+  font-size: 11px;
+  letter-spacing: 0.01em;
+  line-height: 1.45;
+  color: var(--color-muted);
+}
+
+/* 材质层：半透明 + backdrop-filter，内容从其下方滚过 */
+.cw-material {
+  background: var(--color-chrome);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+}
+
+/* 亮边 = 光打在材质上沿，Apple 玻璃质感的关键一笔 */
+.cw-material-edge {
+  box-shadow: inset 0 0.5px 0 rgb(255 255 255 / 45%);
+}
+
+/* 浮起卡片：分组列表的白面，靠极软投影而非描边 */
+.cw-elevated {
+  background: var(--color-surface);
+  border-radius: 10px;
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 4%),
+    0 3px 10px rgb(0 0 0 / 3%);
+}
+
+.cw-elevated-inset {
+  background: var(--color-surface);
+  border-radius: 14px;
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 5%),
+    0 6px 20px rgb(0 0 0 / 5%);
+}
+
+/* 分组列表内的 inset 发丝分隔线，左侧缩进对齐内容 */
+.cw-row + .cw-row {
+  box-shadow: inset 0 0.5px 0 var(--color-line);
+}
+
+/* 按压缩反馈：反馈发生在 pointer-down，而不是松手之后 */
+.cw-press {
+  transition:
+    transform 140ms var(--ease-press),
+    opacity 140ms var(--ease-press),
+    background-color 180ms var(--ease-fluid),
+    color 180ms var(--ease-fluid),
+    box-shadow 180ms var(--ease-fluid);
+}
+
+.cw-press:active:not(:disabled) {
+  transform: scale(0.965);
+}
+
+/* 过渡统一走这两个类，避免和 Tailwind 的 transition-* 简写互相覆盖 */
+.cw-segment-thumb {
+  transition:
+    transform 320ms var(--ease-fluid),
+    background-color 260ms var(--ease-fluid);
+}
+
+.cw-chevron {
+  transition: transform 300ms var(--ease-fluid);
+}
+
+.cw-chevron[data-open='true'] {
+  transform: rotate(90deg);
+}
+
+/* 表单控件：inset grouped 字段，聚焦只加一层极淡的 tint 光晕 */
+.cw-field {
+  background: var(--color-surface);
+  color: var(--color-ink);
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 3%);
+  transition:
+    border-color 180ms var(--ease-fluid),
+    box-shadow 180ms var(--ease-fluid),
+    background-color 180ms var(--ease-fluid);
+}
+
+.cw-field:focus-within {
+  border-color: var(--color-brand-hairline);
+  box-shadow: 0 0 0 3.5px var(--color-brand-tint);
+}
+
+.cw-field:focus {
+  border-color: var(--color-brand-hairline);
+  box-shadow: 0 0 0 3.5px var(--color-brand-tint);
+}
+
+/* 滚动容器：与 body 一致，不露滚动条 */
+.cw-scroll {
+  scrollbar-width: none;
+}
+
+.cw-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+/* iOS 开关：按下时滑块被"拉长"，这是真机上最容易被漏掉的一笔 */
+.cw-switch {
+  position: relative;
+  flex: none;
+  width: 38px;
+  height: 24px;
+  border-radius: 9999px;
+  background: var(--color-track);
+  transition: background-color 260ms var(--ease-fluid);
+}
+
+.cw-switch[data-state='on'] {
+  background: var(--color-brand);
+}
+
+.cw-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 9999px;
+  background: var(--color-knob);
+  box-shadow:
+    0 1px 3px rgb(0 0 0 / 18%),
+    0 2px 6px rgb(0 0 0 / 10%);
+  transition:
+    transform 300ms var(--ease-fluid),
+    width 200ms var(--ease-fluid),
+    left 200ms var(--ease-fluid);
+}
+
+.cw-switch[data-state='on']::after {
+  transform: translateX(14px);
+}
+
+.cw-switch:active::after {
+  width: 24px;
+}
+
+.cw-switch:active[data-state='on']::after {
+  transform: translateX(10px);
+}
+
+/* 披露行：用 grid 轨道做真实高度过渡，比 max-height 假值准 */
+.cw-disclosure {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 380ms var(--ease-fluid);
+}
+
+.cw-disclosure[data-open='true'] {
+  grid-template-rows: 1fr;
+}
+
+.cw-disclosure > * {
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* 面板切换：进出走同一条路径、方向由触发源决定。
+   方向只靠继承的 --cw-shift 表达，省去 forward/back 两套类名 */
+.cw-panel-enter-active,
+.cw-panel-leave-active {
+  transition:
+    transform 280ms var(--ease-fluid),
+    opacity 200ms var(--ease-fluid);
+}
+
+.cw-panel-enter-from,
+.cw-panel-leave-to {
+  opacity: 0;
+}
+
+.cw-panel-enter-from {
+  transform: translateX(var(--cw-shift, 14px));
+}
+
+.cw-panel-leave-to {
+  transform: translateX(calc(-1 * var(--cw-shift, 14px)));
+}
+
+/* 子页从右侧推入，退出也回右侧，空间上可预测 */
+.cw-detail-enter-active,
+.cw-detail-leave-active {
+  transition:
+    transform 400ms var(--ease-fluid),
+    opacity 320ms var(--ease-fluid);
+}
+
+.cw-detail-enter-from,
+.cw-detail-leave-to {
+  transform: translateX(100%);
 }
 
 .cleanweb-css-preview {
@@ -93,4 +343,88 @@ button:disabled {
   word-break: break-word;
   white-space: pre-wrap;
   resize: vertical;
+}
+
+/* 深色模式：Apple 的深色不是反相，是更深的分组 + 更亮的 tint */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-ink: rgb(255 255 255 / 92%);
+    --color-ink-soft: rgb(235 235 245 / 62%);
+    --color-muted: rgb(235 235 245 / 34%);
+
+    --color-window: #000000;
+    --color-surface: #1c1c1e;
+    --color-chrome: rgb(42 42 44 / 78%);
+    --color-chrome-solid: rgb(42 42 44 / 96%);
+
+    --color-line: rgb(84 84 88 / 50%);
+    --color-line-strong: rgb(84 84 88 / 66%);
+
+    --color-brand: #3f9a89;
+    --color-brand-dark: #55b09d;
+    --color-success: #30d158;
+    --color-warn: #ffd60a;
+    --color-danger: #ff453a;
+
+    --color-track: rgb(118 118 128 / 32%);
+    /* 深色下分段控件的选中块是中性灰，文字仍是白；开关滑块保持白色 */
+    --color-thumb: #636366;
+  }
+
+  .cw-elevated,
+  .cw-elevated-inset {
+    box-shadow:
+      0 1px 2px rgb(0 0 0 / 40%),
+      0 6px 20px rgb(0 0 0 / 40%);
+  }
+
+  .cw-material-edge {
+    box-shadow: inset 0 0.5px 0 rgb(255 255 255 / 12%);
+  }
+}
+
+/* 无障碍：减少动效→交叉淡入替代位移；减少透明→材质转实色；高对比→补描边 */
+@media (prefers-reduced-motion: reduce) {
+  .cw-panel-enter-active,
+  .cw-panel-leave-active,
+  .cw-detail-enter-active,
+  .cw-detail-leave-active {
+    transition-duration: 180ms;
+  }
+
+  .cw-panel-enter-from,
+  .cw-panel-leave-to,
+  .cw-detail-enter-from,
+  .cw-detail-leave-to {
+    transform: none;
+  }
+
+  .cw-press:active:not(:disabled) {
+    transform: none;
+  }
+
+  .cw-switch::after,
+  .cw-disclosure {
+    transition-duration: 120ms;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .cw-material {
+    background: var(--color-chrome-solid);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+@media (prefers-contrast: more) {
+  .cw-material {
+    background: var(--color-chrome-solid);
+  }
+
+  .cw-field,
+  .cw-elevated,
+  .cw-elevated-inset {
+    border: 1px solid var(--color-ink);
+  }
 }

@@ -12,18 +12,21 @@ defineEmits<{
 </script>
 
 <template>
-  <header class="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
-    <div class="flex items-center gap-2 min-w-0">
-      <BroomIcon class="h-5 w-5 shrink-0 text-brand" />
-      <span class="text-sm font-semibold text-ink">CleanWeb</span>
+  <header class="flex items-center justify-between gap-3">
+    <div class="flex min-w-0 items-center gap-2">
+      <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-[8px] bg-brand-tint">
+        <BroomIcon class="h-4 w-4 text-brand" />
+      </span>
+      <span class="cw-title min-w-0 truncate text-ink">CleanWeb</span>
     </div>
 
-    <div class="flex items-center gap-2 min-w-0">
-      <span class="truncate text-xs text-muted" :title="currentSite">{{ currentSite }}</span>
+    <div class="flex min-w-0 items-center gap-1.5">
+      <span class="max-w-[150px] truncate rounded-full bg-track px-2.5 py-1 text-[11px] tracking-[0.01em] text-ink-soft"
+        :title="currentSite">{{ currentSite }}</span>
       <button type="button"
-        class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted transition hover:bg-brand-tint hover:text-brand"
+        class="cw-press flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted hover:bg-track hover:text-ink"
         title="设置" aria-label="设置" @click="$emit('open-settings')">
-        <GearIcon class="h-4 w-4" />
+        <GearIcon class="h-[18px] w-[18px]" />
       </button>
     </div>
   </header>

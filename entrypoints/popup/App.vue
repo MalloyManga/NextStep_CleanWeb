@@ -28,6 +28,9 @@ import { getEnabledDraftCss, getEnabledDraftInstruction } from '../../utils/rule
 
 const MODE_STORAGE_KEY = 'local:cleanweb:popup-mode'
 
+// 标签顺序，用于判断面板该往哪个方向进出
+const MODE_ORDER: Record<WorkMode, number> = { clean: 0, select: 1, rules: 2, settings: 3 }
+
 const instruction = ref('')
 const generatedCss = ref('')
 const generatedRuleDrafts = ref<GeneratedRuleDraft[]>([])
@@ -42,6 +45,7 @@ const mode = ref<WorkMode>('clean')
 const ready = ref(false)
 const hasGenerated = ref(false)
 const hasSavedRule = ref(false)
+const panelShift = ref('14px')
 let generationPollId: number | undefined
 const llmSettings = ref<LlmSettings>({
   apiKey: '',
@@ -72,8 +76,14 @@ onUnmounted(() => {
   stopGenerationPolling()
 })
 
-watch(mode, (nextMode) => {
+watch(mode, (nextMode, previousMode) => {
   if (!ready.value) return
+
+  // 进出方向跟随标签的左右位置，返回时原路退回
+  if (previousMode && previousMode !== 'settings' && nextMode !== 'settings') {
+    panelShift.value = MODE_ORDER[nextMode] > MODE_ORDER[previousMode] ? '14px' : '-14px'
+  }
+
   storage.setItem(MODE_STORAGE_KEY, nextMode)
 })
 
@@ -490,36 +500,50 @@ async function startElementPicker() {
 </script>
 
 <template>
-  <main class="grid min-h-0 w-full max-w-full content-start gap-3 overflow-hidden p-4">
-    <template v-if="!ready">
-      <div class="flex h-8 items-center px-1">
-        <span class="h-1.5 w-8 animate-pulse rounded-full bg-brand-tint"></span>
-      </div>
-    </template>
+  <main class="relative h-full w-full overflow-hidden bg-window">
+    <!-- 就绪前只铺出 chrome 的材质高度，避免窗口先塌小再撑开 -->
+    <div v-if="!ready" class="absolute inset-x-0 top-0 h-24 cw-material" />
 
     <template v-else>
-      <template v-if="mode === 'settings'">
-        <SettingsPanel v-model:settings="llmSettings" :is-busy="isBusy" @save="saveSettings" @back="mode = 'clean'" />
-      </template>
+      <section class="flex h-full min-h-0 flex-col">
+        <div class="cw-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          <div class="flex min-h-full flex-col">
+            <!-- 浮动 chrome：标题栏 + 分段控件，内容从其下方滚过 -->
+            <header class="cw-material cw-material-edge sticky top-0 z-20 px-4 pb-3 pt-3">
+              <PopupHeader :current-site="currentSite" @open-settings="mode = 'settings'" />
+              <ModeTabs v-model="mode" class="mt-3" />
+            </header>
 
-      <template v-else>
-        <PopupHeader :current-site="currentSite" @open-settings="mode = 'settings'" />
+            <div class="flex min-h-0 flex-1 flex-col px-4 py-4" :style="{ '--cw-shift': panelShift }">
+              <Transition name="cw-panel" mode="out-in">
+                <CleanModePanel v-if="mode === 'clean'" v-model:instruction="instruction"
+                  :is-busy="isBusy" :has-api-key="hasApiKey"
+                  @update:instruction="instruction = $event" @analyze="collectDomSummary"
+                  @cancel="cancelGeneration" @go-settings="mode = 'settings'" />
+                <SelectModePanel v-else-if="mode === 'select'" :is-busy="isBusy" :has-saved-rule="hasSavedRule"
+                  @start-picker="prepareElementPicker" />
+                <RulesPanel v-else :generated-css="generatedCss" :ai-debug-text="selectedAiDebugText"
+                  :rule-drafts="generatedRuleDrafts" :selected-draft-id="selectedDraftId" :is-busy="isBusy"
+                  @update:generated-css="updateGeneratedCss" @select-rule-draft="selectRuleDraft"
+                  @toggle-rule-draft="toggleRuleDraft" @delete-rule-draft="deleteRuleDraft"
+                  @commit-generated-css="commitGeneratedCss" />
+              </Transition>
+            </div>
 
-        <ModeTabs v-model="mode" />
+            <div class="sticky bottom-0 z-20">
+              <StatusBar :status="status" :is-busy="isBusy" @reset="resetPage" />
+            </div>
+          </div>
+        </div>
+      </section>
 
-        <CleanModePanel v-if="mode === 'clean'" v-model:instruction="instruction"
-          :is-busy="isBusy" :has-api-key="hasApiKey"
-          @update:instruction="instruction = $event" @analyze="collectDomSummary"
-          @cancel="cancelGeneration" @go-settings="mode = 'settings'" />
-        <SelectModePanel v-else-if="mode === 'select'" :is-busy="isBusy" :has-saved-rule="hasSavedRule" @start-picker="prepareElementPicker" />
-        <RulesPanel v-else :generated-css="generatedCss" :ai-debug-text="selectedAiDebugText"
-          :rule-drafts="generatedRuleDrafts" :selected-draft-id="selectedDraftId" :is-busy="isBusy"
-          @update:generated-css="updateGeneratedCss" @select-rule-draft="selectRuleDraft"
-          @toggle-rule-draft="toggleRuleDraft" @delete-rule-draft="deleteRuleDraft"
-          @commit-generated-css="commitGeneratedCss" />
-      </template>
-
-      <StatusBar :status="status" :is-busy="isBusy" @reset="resetPage" />
+      <!-- 设置：从右侧推入的子页，返回时原路退出 -->
+      <Transition name="cw-detail">
+        <section v-if="mode === 'settings'" class="cw-scroll absolute inset-0 z-30 overflow-y-auto bg-window">
+          <SettingsPanel v-model:settings="llmSettings" :is-busy="isBusy" @save="saveSettings"
+            @back="mode = 'clean'" />
+        </section>
+      </Transition>
     </template>
   </main>
 </template>

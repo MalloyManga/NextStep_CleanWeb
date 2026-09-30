@@ -47,33 +47,35 @@ function onSendButtonClick() {
 </script>
 
 <template>
-  <div class="grid min-w-0 max-w-full gap-3 overflow-hidden">
+  <div class="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
     <!-- P0-2：未配置 AI Key 提示 -->
     <div v-if="!hasApiKey"
-      class="flex items-center justify-between gap-2 rounded-lg border border-brand/25 bg-brand-tint px-3 py-2">
-      <span class="min-w-0 text-xs text-ink-soft">未配置 AI Key，无法使用 AI 净化（点选隐藏仍可离线使用）</span>
+      class="cw-elevated flex items-center justify-between gap-2.5 px-3 py-2.5">
+      <span class="mt-0.5 h-2 w-2 shrink-0 rounded-full bg-warn"></span>
+      <span class="cw-body min-w-0 flex-1 text-ink-soft">未配置 AI Key，无法使用 AI 净化（点选隐藏仍可离线使用）</span>
       <button type="button"
-        class="shrink-0 rounded-md bg-brand px-2 py-1 text-xs font-medium text-white transition hover:bg-brand-dark"
+        class="cw-press shrink-0 rounded-full bg-track px-3 py-1.5 text-xs font-semibold text-brand"
         @click="$emit('go-settings')">
         去设置
       </button>
     </div>
 
-    <label class="grid min-w-0 gap-1.5">
-      <span class="text-xs font-semibold text-ink-soft">净化指令</span>
-      <div class="relative min-w-0">
+    <label class="flex min-h-0 flex-1 flex-col gap-2">
+      <span class="cw-section-title">净化指令</span>
+      <div class="cw-field relative flex min-h-0 flex-1 flex-col">
         <textarea :value="instruction" rows="3"
-          class="w-full resize-y rounded-lg border border-line bg-white px-3 py-2 pb-9 text-sm leading-relaxed text-ink outline-none transition focus:border-brand focus:ring-2 focus:ring-brand-soft"
+          class="block min-h-0 w-full flex-1 resize-none bg-transparent px-3 py-2.5 pb-10 text-[13px] leading-relaxed text-ink outline-none placeholder:text-muted"
           placeholder="例如：隐藏右侧推荐栏，把正文居中放大" @input="onInstructionInput" @keydown="onKeydown" />
         <button type="button" :disabled="!canSend && !showStop"
-          class="absolute bottom-2 right-2 flex h-7 w-7 items-center justify-center rounded-full transition"
-          :class="canSend || showStop ? 'bg-brand text-white hover:bg-brand-dark' : 'cursor-not-allowed bg-brand-tint text-muted'"
+          class="cw-press absolute bottom-2 right-2 flex h-8 w-8 items-center justify-center rounded-full"
+          :class="canSend || showStop ? 'bg-brand text-white' : 'bg-track text-muted cursor-not-allowed'"
           :title="showStop ? '停止生成' : (canSend ? sendLabel : '输入指令后发送')" :aria-label="showStop ? '停止生成' : sendLabel"
           @click="onSendButtonClick">
-          <StopIcon v-if="showStop" class="h-3 w-3" />
+          <StopIcon v-if="showStop" class="h-3.5 w-3.5" />
           <SendIcon v-else class="h-4 w-4" />
         </button>
       </div>
+      <span class="cw-footnote">Enter 发送 · Shift+Enter 换行</span>
     </label>
 
   </div>
