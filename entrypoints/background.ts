@@ -8,8 +8,8 @@ import type {
   GenerationState,
   StartGenerationMessage,
 } from '../types/cleanweb';
-import { formatCssForPreview } from '../utils/css-format';
-import { FALLBACK_CSS, generateAiModifyRule, generateCssRule, generateSmartHideRule } from '../utils/llm';
+import { createRuleDraft, getEnabledDraftCss, getEnabledDraftInstruction } from '../utils/rule-drafts';
+import { generateAiModifyRule, generateCssRule, generateSmartHideRule } from '../utils/llm';
 import { getGenerationState, saveGenerationState } from '../utils/storage';
 
 export default defineBackground(() => {
@@ -106,8 +106,8 @@ async function runGenerationTask(message: StartGenerationMessage): Promise<Clean
       });
     }
 
-    const draft = createGeneratedRuleDraft({
-      css: formatCssForPreview(result.css || FALLBACK_CSS),
+    const draft = createRuleDraft({
+      css: result.css,
       explanation: result.explanation,
       instruction: message.instruction,
       source: result.usedFallback ? 'fallback' : 'full-page',
@@ -119,7 +119,7 @@ async function runGenerationTask(message: StartGenerationMessage): Promise<Clean
     await browser.tabs.sendMessage(message.tabId, {
       type: 'CLEANWEB_APPLY_RULE',
       css,
-      instruction: getEnabledDraftInstruction(nextDrafts),
+      instruction: getEnabledDraftInstruction(nextDrafts, (n) => `Enabled ${n} generated rules`),
       save: true,
       drafts: nextDrafts,
     } satisfies ApplyRuleMessage);
@@ -220,34 +220,6 @@ async function getCanceledGenerationResponse(
     ok: true,
     generationState: state,
   };
-}
-
-function createGeneratedRuleDraft(input: Omit<GeneratedRuleDraft, 'id' | 'enabled' | 'createdAt'>): GeneratedRuleDraft {
-  return {
-    ...input,
-    id: `${Date.now()}-${crypto.getRandomValues(new Uint32Array(1))[0].toString(36)}`,
-    enabled: true,
-    createdAt: Date.now(),
-  };
-}
-
-function getEnabledDraftCss(drafts: GeneratedRuleDraft[]) {
-  return drafts
-    .filter((draft) => draft.enabled)
-    .slice()
-    .reverse()
-    .map((draft) => draft.css)
-    .join('\n\n');
-}
-
-function getEnabledDraftInstruction(drafts: GeneratedRuleDraft[]) {
-  const enabledDrafts = drafts.filter((draft) => draft.enabled);
-
-  if (enabledDrafts.length === 1) {
-    return enabledDrafts[0].instruction;
-  }
-
-  return `Enabled ${enabledDrafts.length} generated rules`;
 }
 
 function createIdleGenerationState(hostname: string): GenerationState {

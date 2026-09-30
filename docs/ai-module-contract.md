@@ -53,9 +53,15 @@ interface GenerateCssResult {
 
 失败策略：
 
-- API 失败时抛出带清晰 message 的错误，或者返回 fallback CSS。
+- 无 Key / API 请求失败 / 空响应 / 非 JSON / 护栏清空 → 一律抛清晰中文错误
+  （background 走 error 态、popup 显示；content 拒绝注入；**不再静默套兜底 CSS**）。
+- HTTP 状态由 `describeLlmError` 翻译成人话：
+  401→"Key 无效"、402→"余额不足"、404→"端点或模型不存在"、429→"过于频繁"、
+  5xx→"服务暂时不可用"，其它状态保留原文。
+- 400 且服务端明确抱怨 `response_format` 时，去掉 `response_format` 重试一次；
+  其他 4xx/5xx 不重试（重试也没用，见 6524cb4）。
 - JSON 解析失败时不要把原始大段模型输出直接展示给用户。
-- 返回的 CSS 不能为空。
+- 返回的 CSS 不能为空；若被护栏剥光即抛错，不静默应用。
 
 ## DOM Summary Shape
 
@@ -100,27 +106,19 @@ interface DomSummaryItem {
 - 尽量只影响干扰区域，不破坏登录、评论、按钮等交互。
 - 必要时使用 `!important` 覆盖原网页样式。
 
-## Fallback
+## 降级 & 离线能力
 
-黑客松演示必须准备 fallback。建议至少内置一条通用规则：
+- **整页净化** 与 **AI 修改** 属于"真 AI"路径:无 Key、API 请求失败(含 401/402/4xx/5xx)、
+  空响应、非 JSON、或护栏把 CSS 全部剥光 → 一律抛中文错误,popup 显示,
+  content 拒绝注入。**不再静默套兜底 CSS** —— 商店产品里假成功是不诚实的。
+- **智能隐藏**是纯启发式(content 里沿父链选安全容器 → `display: none !important`),
+  **无 Key 也能用**:点哪藏哪,不需要 AI 参与;AI 只在选择器精度上加价值。
+  这与"无 Key 明确报错"的边界不冲突 —— 用户点中的目标被藏起来是可见、诚实的行为。
+- HTTP 状态翻译集中在 `utils/llm-request.ts` 的 `describeLlmError`;只对
+  400 + 明确抱怨 `response_format` 时走一次去 retry,其他 4xx/5xx 直接抛。
 
-```css
-aside,
-[class*="sidebar"],
-[class*="ad"],
-[class*="recommend"] {
-  display: none !important;
-}
-
-main,
-article {
-  max-width: 860px !important;
-  margin-left: auto !important;
-  margin-right: auto !important;
-  font-size: 18px !important;
-  line-height: 1.8 !important;
-}
-```
+(早期"黑客松 fallback CSS"设计在 `21979b9` 中已废除;参考实现由
+`utils/llm.test.ts` 里 7 条 mock 集成测试钉住。)
 
 ## Acceptance
 
@@ -135,7 +133,7 @@ npm.cmd run build 通过
 
 ## Environment
 
-当前实现支持 OpenAI-compatible Chat Completions API。用户可以在插件 Popup 的“设置”页填写 API Key、Base URL 和 Model；没有配置 API Key 时，会自动返回 fallback CSS，保证演示不中断。
+当前实现支持 OpenAI-compatible Chat Completions API。用户可以在插件 Popup 的“设置”页填写 API Key、Base URL 和 Model；未配置 API Key 时，整页净化与 AI 修改会抛“请先配置 AI Key”的中文错误(引导去设置)，智能隐藏仍离线可用。
 
 设置页推荐填写：
 
@@ -147,10 +145,10 @@ Model: gpt-4o-mini
 
 如果使用兼容 OpenAI 的服务，把 Base URL 换成对应服务的 `/v1` 地址即可。也可以直接填写完整的 `/chat/completions` 地址。
 
-开发时仍可使用环境变量作为 fallback：
+开发时可用环境变量注入默认(仅在 `wxt.config.ts` 里通过 `define` 编译进 bundle，**上架商店的正式构建必须保持这三项为空**，让每个用户自己在设置里填 Key)：
 
 ```text
-WXT_LLM_API_KEY=your_api_key
-WXT_LLM_BASE_URL=https://example.com/v1
-WXT_LLM_MODEL=gpt-4o-mini
+VITE_LLM_API_KEY=your_api_key
+VITE_LLM_BASE_URL=https://example.com/v1
+VITE_LLM_MODEL=gpt-4o-mini
 ```
