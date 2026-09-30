@@ -20,7 +20,6 @@ function readEnv(name: string) {
   const text = readFileSync(new URL('../.env', import.meta.url), 'utf8')
   return text.match(new RegExp(`^${name}=(.*)$`, 'm'))?.[1]?.trim() ?? ''
 }
-
 // 一份贴近真实、不含任何站点专有词的“嘈杂页面”摘要
 function noisyPageSummary(): DomSummaryItem[] {
   const base = { tag: 'div', text: '', visible: true, rect: { x: 0, y: 0, width: 300, height: 200 } }
@@ -67,7 +66,12 @@ describe('live AI cleaner probe (manual, opt-in)', () => {
 
     const safe = sanitizeGeneratedCss(result.css, domSummary, instruction)
     console.info('===== PROBE: after guardrail =====\n', safe)
+    // 红线：导航不能被整块隐藏；正文可以被 restyle，但不能被 display:none
     expect(safe).not.toMatch(/(^|[ ,{])nav(\b|[^-a-z])/i)
-    expect(safe).not.toContain('article.post')
+    expect(safe).not.toMatch(/article\.post\b[^}]*display\s*:\s*none/i)
+    // 应当出现"该出现的":侧栏/广告/推荐被隐藏,正文被 restyle
+    expect(safe).toMatch(/aside\.sidebar[^}]*display\s*:\s*none/i)
+    expect(safe).toMatch(/\.ad-banner[^}]*display\s*:\s*none/i)
+    expect(safe).toMatch(/article\.post\b[^}]*max-width/i)
   }, 90_000)
 })
