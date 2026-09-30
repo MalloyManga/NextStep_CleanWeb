@@ -22,7 +22,7 @@ import {
   SMART_HIDE_MAX_TOKENS,
   requestJsonCompletion,
 } from './llm-request';
-import { getErrorMessage, parseJsonObject } from './llm-response';
+import { parseJsonObject } from './llm-response';
 import { fallbackSmartHideCss } from './llm-fallback';
 
 export { getDefaultLlmConfig };
@@ -116,7 +116,7 @@ Generate CSS and respond with JSON only.`,
   try {
     completion = await requestJsonCompletion(config, messages, PAGE_GENERATION_MAX_TOKENS);
   } catch (error) {
-    throw new Error(`AI 净化规则生成失败：${getErrorMessage(error)}。请检查网络或 AI 设置后重试。`);
+    throw error instanceof Error ? error : new Error(String(error));
   }
 
   if (!completion.raw) {
