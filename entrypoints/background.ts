@@ -10,7 +10,7 @@ import type {
 } from '../types/cleanweb';
 import { formatCssForPreview } from '../utils/css-format';
 import { getEnabledDraftCss, getEnabledDraftInstruction } from '../utils/rule-drafts';
-import { FALLBACK_CSS, generateAiModifyRule, generateCssRule, generateSmartHideRule } from '../utils/llm';
+import { generateAiModifyRule, generateCssRule, generateSmartHideRule } from '../utils/llm';
 import { getGenerationState, saveGenerationState } from '../utils/storage';
 
 export default defineBackground(() => {
@@ -108,7 +108,7 @@ async function runGenerationTask(message: StartGenerationMessage): Promise<Clean
     }
 
     const draft = createGeneratedRuleDraft({
-      css: formatCssForPreview(result.css || FALLBACK_CSS),
+      css: formatCssForPreview(result.css),
       explanation: result.explanation,
       instruction: message.instruction,
       source: result.usedFallback ? 'fallback' : 'full-page',

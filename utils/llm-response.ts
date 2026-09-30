@@ -40,11 +40,3 @@ function extractJsonObject(raw: string) {
 
   return raw.slice(start, end + 1);
 }
-
-export function getEmptyResponseExplanation(responseSnapshot: string) {
-  if (responseSnapshot.includes('"reasoning_content"')) {
-    return 'AI spent the output budget on reasoning and returned no final JSON content. Applied the built-in fallback rule.';
-  }
-
-  return 'AI returned an empty response. Applied the built-in fallback rule.';
-}

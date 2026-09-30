@@ -22,16 +22,8 @@ import {
   SMART_HIDE_MAX_TOKENS,
   requestJsonCompletion,
 } from './llm-request';
-import {
-  getEmptyResponseExplanation,
-  getErrorMessage,
-  parseJsonObject,
-} from './llm-response';
-import {
-  FALLBACK_CSS,
-  fallbackAiModifyCss,
-  fallbackSmartHideCss,
-} from './llm-fallback';
+import { getErrorMessage, parseJsonObject } from './llm-response';
+import { fallbackSmartHideCss } from './llm-fallback';
 
 export { getDefaultLlmConfig };
 
@@ -124,83 +116,59 @@ Generate CSS and respond with JSON only.`,
   try {
     completion = await requestJsonCompletion(config, messages, PAGE_GENERATION_MAX_TOKENS);
   } catch (error) {
-    return createFallbackResult('Rule generation request failed. Applied the built-in fallback rule.', {
-      ...debugBase,
-      responseFinishedAt: Date.now(),
-      requestError: getErrorMessage(error),
-      usedFallback: true,
-    });
+    throw new Error(`AI 净化规则生成失败：${getErrorMessage(error)}。请检查网络或 AI 设置后重试。`);
   }
 
   if (!completion.raw) {
     console.warn('[CleanWeb][AI] empty response', {
       model: config.model,
     });
-    return createFallbackResult(getEmptyResponseExplanation(completion.responseSnapshot), {
-      ...debugBase,
-      responseFinishedAt: Date.now(),
-      rawResponse: completion.raw,
-      responseSnapshot: completion.responseSnapshot,
-      parseError: 'Empty response',
-      usedFallback: true,
-      retriedWithoutResponseFormat: completion.retriedWithoutResponseFormat,
-    });
+    throw new Error('AI 返回了空响应，可能输出预算被推理占用或额度不足，请重试或更换模型。');
   }
 
+  let parsed: Partial<GenerateCssResult>;
   try {
-    const parsed = parseJsonObject(completion.raw) as Partial<GenerateCssResult>;
-    if (!parsed.css || typeof parsed.css !== 'string') {
-      return createFallbackResult('AI response did not include a valid css field. Applied the built-in fallback rule.', {
-        ...debugBase,
-        responseFinishedAt: Date.now(),
-        rawResponse: completion.raw,
-        responseSnapshot: completion.responseSnapshot,
-        parseError: 'Missing css string field',
-        usedFallback: true,
-        retriedWithoutResponseFormat: completion.retriedWithoutResponseFormat,
-      });
-    }
-
-    const sanitizedCss = sanitizeGeneratedCss(parsed.css.trim(), input.domSummary, input.instruction);
-    const explanation = typeof parsed.explanation === 'string' ? parsed.explanation.trim() : '';
-    const result = {
-      css: sanitizedCss,
-      explanation,
-      usedFallback: false,
-      debug: {
-        ...debugBase,
-        responseFinishedAt: Date.now(),
-        rawResponse: completion.raw,
-        responseSnapshot: completion.responseSnapshot,
-        cssLength: sanitizedCss.length,
-        explanation,
-        usedFallback: false,
-        retriedWithoutResponseFormat: completion.retriedWithoutResponseFormat,
-      },
-    };
-
-    console.info('[CleanWeb][AI] response', {
-      cssLength: result.css.length,
-      explanation: result.explanation,
-      model: config.model,
-    });
-
-    return result;
+    parsed = parseJsonObject(completion.raw) as Partial<GenerateCssResult>;
   } catch (error) {
     console.warn('[CleanWeb][AI] failed to parse response', {
       rawLength: completion.raw.length,
       model: config.model,
     });
-    return createFallbackResult('AI response could not be parsed as JSON. Applied the built-in fallback rule.', {
+    throw new Error('AI 返回结果不是合法 JSON，请重试。');
+  }
+
+  if (!parsed.css || typeof parsed.css !== 'string') {
+    throw new Error('AI 返回结果缺少有效的 css 字段，请重试。');
+  }
+
+  const sanitizedCss = sanitizeGeneratedCss(parsed.css.trim(), input.domSummary, input.instruction);
+  if (!sanitizedCss) {
+    throw new Error('AI 生成的规则没有通过安全检查，请换个说法重试。');
+  }
+  const explanation = typeof parsed.explanation === 'string' ? parsed.explanation.trim() : '';
+  const result = {
+    css: sanitizedCss,
+    explanation,
+    usedFallback: false,
+    debug: {
       ...debugBase,
       responseFinishedAt: Date.now(),
       rawResponse: completion.raw,
       responseSnapshot: completion.responseSnapshot,
-      parseError: getErrorMessage(error),
-      usedFallback: true,
+      cssLength: sanitizedCss.length,
+      explanation,
+      usedFallback: false,
       retriedWithoutResponseFormat: completion.retriedWithoutResponseFormat,
-    });
-  }
+    },
+  };
+
+  console.info('[CleanWeb][AI] response', {
+    cssLength: result.css.length,
+    explanation: result.explanation,
+    model: config.model,
+  });
+
+  return result;
 }
 
 export async function generateSmartHideRule(request: SmartHideRequest): Promise<SmartHideResult> {
@@ -311,49 +279,30 @@ Rules:
 
   const completion = await requestJsonCompletion(config, messages, AI_MODIFY_MAX_TOKENS);
   if (!completion.raw) {
-    return {
-      action: 'ai-modify',
-      css: fallbackAiModifyCss(request.context, request.instruction),
-      explanation: 'AI returned an empty response. CleanWeb used a conservative local style.',
-    };
+    throw new Error('AI 返回了空响应，请重试或更换模型。');
   }
 
+  let parsed: Partial<AiModifyResult>;
   try {
-    const parsed = parseJsonObject(completion.raw) as Partial<AiModifyResult>;
-    const allowHide = hasExplicitHideIntent(request.instruction);
-    const sanitizedCss = sanitizeSelectedElementCss(parsed.css?.trim() || '', request.context, {
-      allowHide,
-      allowDescendants: true,
-      protectedTerms: getProtectedTerms(request.instruction),
-    });
-
-    return {
-      action: 'ai-modify',
-      css: sanitizedCss || fallbackAiModifyCss(request.context, request.instruction),
-      explanation: parsed.explanation?.trim() || 'AI returned CSS that could not be safely applied, so CleanWeb used a conservative local style.',
-    };
+    parsed = parseJsonObject(completion.raw) as Partial<AiModifyResult>;
   } catch {
-    return {
-      action: 'ai-modify',
-      css: fallbackAiModifyCss(request.context, request.instruction),
-      explanation: 'AI response could not be parsed. CleanWeb used a conservative local style.',
-    };
+    throw new Error('AI 返回结果不是合法 JSON，请重试。');
   }
-}
 
-function createFallbackResult(explanation: string, debug: AiDebugLog): GenerateCssResult {
-  const css = FALLBACK_CSS;
+  const allowHide = hasExplicitHideIntent(request.instruction);
+  const sanitizedCss = sanitizeSelectedElementCss(parsed.css?.trim() || '', request.context, {
+    allowHide,
+    allowDescendants: true,
+    protectedTerms: getProtectedTerms(request.instruction),
+  });
+  if (!sanitizedCss) {
+    throw new Error('AI 生成的样式没有通过安全检查，请换个说法重试。');
+  }
 
   return {
-    css,
-    explanation,
-    usedFallback: true,
-    debug: {
-      ...debug,
-      cssLength: css.length,
-      explanation,
-      usedFallback: true,
-    },
+    action: 'ai-modify',
+    css: sanitizedCss,
+    explanation: parsed.explanation?.trim() || '',
   };
 }
 
@@ -395,8 +344,3 @@ function formatSelectedElementContext(context: SelectedElementContext): string {
   return lines.join('\n');
 }
 
-export function isFallbackResult(result: GenerateCssResult): boolean {
-  return result.usedFallback;
-}
-
-export { FALLBACK_CSS };
