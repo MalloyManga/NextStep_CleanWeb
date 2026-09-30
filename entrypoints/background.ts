@@ -8,8 +8,7 @@ import type {
   GenerationState,
   StartGenerationMessage,
 } from '../types/cleanweb';
-import { formatCssForPreview } from '../utils/css-format';
-import { getEnabledDraftCss, getEnabledDraftInstruction } from '../utils/rule-drafts';
+import { createRuleDraft, getEnabledDraftCss, getEnabledDraftInstruction } from '../utils/rule-drafts';
 import { generateAiModifyRule, generateCssRule, generateSmartHideRule } from '../utils/llm';
 import { getGenerationState, saveGenerationState } from '../utils/storage';
 
@@ -107,8 +106,8 @@ async function runGenerationTask(message: StartGenerationMessage): Promise<Clean
       });
     }
 
-    const draft = createGeneratedRuleDraft({
-      css: formatCssForPreview(result.css),
+    const draft = createRuleDraft({
+      css: result.css,
       explanation: result.explanation,
       instruction: message.instruction,
       source: result.usedFallback ? 'fallback' : 'full-page',
@@ -220,15 +219,6 @@ async function getCanceledGenerationResponse(
   return {
     ok: true,
     generationState: state,
-  };
-}
-
-function createGeneratedRuleDraft(input: Omit<GeneratedRuleDraft, 'id' | 'enabled' | 'createdAt'>): GeneratedRuleDraft {
-  return {
-    ...input,
-    id: `${Date.now()}-${crypto.getRandomValues(new Uint32Array(1))[0].toString(36)}`,
-    enabled: true,
-    createdAt: Date.now(),
   };
 }
 

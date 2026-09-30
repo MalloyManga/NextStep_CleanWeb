@@ -10,10 +10,9 @@ import type {
   SmartHideMessage,
   SmartHideResult,
 } from '../types/cleanweb';
-import { formatCssForPreview } from '../utils/css-format';
 import { buildReadableSelector, collectDomSummary, collectElementContext, toElementContextItem } from '../utils/dom-summary';
 import { getHostname, getRule, removeRule, saveRule } from '../utils/storage';
-import { getEnabledDraftCss, getEnabledDraftInstruction } from '../utils/rule-drafts';
+import { createRuleDraft, getEnabledDraftCss, getEnabledDraftInstruction } from '../utils/rule-drafts';
 
 const STYLE_ID = 'cleanweb-generated-style';
 const PICKER_LAYER_ID = 'cleanweb-picker-layer';
@@ -603,7 +602,7 @@ async function handleHideSelectedElement(event: MouseEvent) {
 
     const hostname = getHostname();
     const existingRule = await getRule(hostname);
-    const draft = createElementRuleDraft({
+    const draft = createRuleDraft({
       css: result.css,
       explanation: result.explanation,
       instruction: `隐藏 ${result.selector}`,
@@ -847,7 +846,7 @@ function createAiPanelContent() {
 
       const hostname = getHostname();
       const existingRule = await getRule(hostname);
-      const draft = createElementRuleDraft({
+      const draft = createRuleDraft({
         css: result.css,
         explanation: result.explanation,
         instruction,
@@ -999,16 +998,6 @@ function isCleanWebElement(element: HTMLElement) {
 
 function isCleanWebControlElement(element: HTMLElement) {
   return Boolean(element.closest(`#${PICKER_TOOLBAR_ID}`));
-}
-
-function createElementRuleDraft(input: Omit<GeneratedRuleDraft, 'id' | 'enabled' | 'createdAt'>): GeneratedRuleDraft {
-  return {
-    ...input,
-    id: `${Date.now()}-${crypto.getRandomValues(new Uint32Array(1))[0].toString(36)}`,
-    css: formatCssForPreview(input.css),
-    enabled: true,
-    createdAt: Date.now(),
-  };
 }
 
 function addRuleDraft(rule: Awaited<ReturnType<typeof getRule>>, draft: GeneratedRuleDraft) {

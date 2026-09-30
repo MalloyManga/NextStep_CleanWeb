@@ -1,4 +1,17 @@
 import type { GeneratedRuleDraft } from '../types/cleanweb';
+import { formatCssForPreview } from './css-format';
+
+export function createRuleDraft(
+  input: Omit<GeneratedRuleDraft, 'id' | 'enabled' | 'createdAt'>,
+): GeneratedRuleDraft {
+  return {
+    ...input,
+    css: formatCssForPreview(input.css),
+    id: `${Date.now()}-${crypto.getRandomValues(new Uint32Array(1))[0].toString(36)}`,
+    enabled: true,
+    createdAt: Date.now(),
+  };
+}
 
 export function getEnabledDraftCss(drafts: GeneratedRuleDraft[]): string {
   return drafts
